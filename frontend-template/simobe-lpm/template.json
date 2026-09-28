@@ -1,0 +1,85 @@
+{
+  "name": "simobe-lpm",
+  "title": "SIMOBE — Glassmorphic Cyber-Tech Admin",
+  "description": "Dashboard admin modern bergaya glassmorphism/cyber-tech: sidebar collapsible, header dengan theme switcher (light/dark/system), dan halaman login dengan animated mesh gradient. Cocok untuk aplikasi manajemen / SIM / panel admin.",
+  "origin_stack": "Laravel Blade + Tailwind CSS 3 + Alpine.js",
+  "style": {
+    "vibe": "glassmorphism, cyber-tech, gradient glow accents, subtle circuit grid",
+    "fonts": {
+      "sans": "Inter",
+      "mono": "JetBrains Mono"
+    },
+    "colors": {
+      "navy": {
+        "800": "#152e66",
+        "900": "#0c1d45",
+        "950": "#07122e"
+      },
+      "cyber": {
+        "sky": "#38bdf8",
+        "blue": "#2563eb",
+        "indigo": "#6366f1",
+        "orange": "#f97316",
+        "emerald": "#10b981"
+      }
+    },
+    "radius": "rounded-2xl (kartu/tombol), rounded-xl (elemen kecil)",
+    "effects": [
+      "backdrop-blur-xl",
+      "gradient glow (blue->sky->orange)",
+      "radial mesh background",
+      "float/shimmer/glow-pulse animations",
+      "font-black headings",
+      "font-mono labels & badges"
+    ],
+    "dark_mode": "class-based; light/dark/system via Alpine $persist"
+  },
+  "libraries": [
+    "tailwindcss@3",
+    "alpinejs",
+    "@alpinejs/persist",
+    "@alpinejs/collapse",
+    "sweetalert2",
+    "fontawesome / heroicons (svg)"
+  ],
+  "components": [
+    "layout",
+    "sidebar",
+    "header",
+    "login"
+  ],
+  "files": [
+    {
+      "path": "layout.blade.php",
+      "role": "App shell: <html> dark-mode, sidebar + header + main @yield('content')"
+    },
+    {
+      "path": "partials/sidebar.blade.php",
+      "role": "Sidebar glass collapsible (w-64/w-20), brand header, nav"
+    },
+    {
+      "path": "partials/header.blade.php",
+      "role": "Header fixed: toggle, gradient title, theme switcher 3-mode, profile dropdown"
+    },
+    {
+      "path": "auth/login.blade.php",
+      "role": "Halaman login: mesh gradient bg + glass card"
+    },
+    {
+      "path": "css/tokens.css",
+      "role": "Design tokens (Tailwind extend) + kelas kustom .glass-*, .tech-mesh-bg, .btn-*-tech"
+    }
+  ],
+  "adapt": {
+    "blade": "Pakai langsung. Sesuaikan brand, warna, dan item nav.",
+    "react": "Ubah layout jadi <Layout> component. sidebarOpen & theme => useState + localStorage (atau zustand). Kelas Tailwind terbawa 1:1. Ikon: lucide-react. Animasi float/glow: framer-motion atau keep CSS keyframes. Sidebar collapsible => state boolean.",
+    "vue": "Pakai <script setup>. sidebarOpen & theme => ref + VueUse useStorage. Kelas Tailwind sama. Ikon: lucide-vue-next.",
+    "next": "Sama seperti React; taruh Layout di app/layout.tsx atau komponen shell. tokens.css => globals.css."
+  },
+  "conventions": {
+    "table": "DataTables (jQuery) — https://datatables.net",
+    "select": "select2 — https://select2.org (dropdown searchable/multi)",
+    "icons": "Font Awesome — https://fontawesome.com/icons",
+    "note": "Stack Blade/jQuery server-rendered: inisialisasi select2 & DataTables via jQuery di @push('scripts'). Ikon pakai kelas <i class=\"fa-solid fa-...\">."
+  }
+}

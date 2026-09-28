@@ -1,0 +1,87 @@
+{
+  "name": "bari-nextjs",
+  "title": "BARI — shadcn/ui Dashboard (dark rail, light canvas)",
+  "description": "Dashboard Next.js App Router berbasis shadcn/ui: sidebar collapsible-icon yang SELALU gelap (dark rail) di atas kanvas terang/gelap, header sticky blur dengan breadcrumb + theme toggle, dan halaman login (kredensial + opsi SSO). Modern, aksesibel, cocok untuk panel admin React/Next.",
+  "origin_stack": "Next.js 16 (App Router) + React 19 + TypeScript + Tailwind CSS 4 + shadcn/ui",
+  "style": {
+    "vibe": "clean shadcn, dark-rail sidebar, aksen cyan, garis cahaya 'shell-sweep'",
+    "fonts": {
+      "sans": "Geist / Inter",
+      "mono": "Geist Mono / JetBrains Mono"
+    },
+    "colors": {
+      "model": "oklch tokens (shadcn)",
+      "primary": "oklch(0.6 0.18 210)  /* cyan-sky */",
+      "sidebar": "oklch(0.17 0.018 255) /* navy gelap, TIDAK ikut light mode */",
+      "sidebar_primary": "oklch(0.72 0.15 210)",
+      "login_cta": "gradient blue-600 -> emerald-600"
+    },
+    "radius": "--radius: 0.625rem (rounded-xl/2xl)",
+    "effects": [
+      "backdrop-blur-xl header",
+      "shell-sweep (garis cahaya berjalan pakai --sidebar-primary)",
+      "active menu glow cyan",
+      "grid+radial texture di rail"
+    ],
+    "dark_mode": "next-themes (light/dark/system) via ThemeToggle; sidebar tetap gelap di kedua mode"
+  },
+  "libraries": [
+    "next",
+    "react",
+    "tailwindcss@4",
+    "shadcn/ui",
+    "@radix-ui",
+    "lucide-react",
+    "next-themes",
+    "sonner",
+    "class-variance-authority",
+    "clsx",
+    "tailwind-merge"
+  ],
+  "components": [
+    "layout",
+    "sidebar",
+    "header",
+    "login",
+    "theme-toggle"
+  ],
+  "prereq": "Butuh komponen shadcn: sidebar, button, input, separator, dropdown-menu, tooltip, breadcrumb, field. Pasang: `npx shadcn@latest add sidebar button input separator dropdown-menu tooltip breadcrumb`. Plus `npm i next-themes lucide-react`.",
+  "files": [
+    {
+      "path": "app/globals.css",
+      "role": "Token oklch (:root/.dark) + token sidebar dark-rail + @keyframes & .shell-sweep + gaya menu aktif"
+    },
+    {
+      "path": "app/(panel)/layout.tsx",
+      "role": "Shell panel: SidebarProvider > AppSidebar + SidebarInset(PanelHeader + children)"
+    },
+    {
+      "path": "components/app-sidebar.tsx",
+      "role": "Sidebar shadcn collapsible=icon: brand + NavMain(dari config) + NavUser + Rail"
+    },
+    {
+      "path": "components/panel-header.tsx",
+      "role": "Header sticky blur: SidebarTrigger + breadcrumb + ThemeToggle"
+    },
+    {
+      "path": "components/theme-toggle.tsx",
+      "role": "Dropdown light/dark/system (next-themes)"
+    },
+    {
+      "path": "components/login-form.tsx",
+      "role": "Form login: username/password (show-hide) + CTA gradien + tombol SSO"
+    }
+  ],
+  "adapt": {
+    "next": "Pakai langsung (App Router). Ganti brand, NAV items, dan endpoint auth.",
+    "react": "Tanpa Next: ganti next/link-><a>, usePathname->router lib (react-router), next-themes tetap bisa atau pakai class toggler sendiri. Struktur shadcn sama.",
+    "vue": "Port ke shadcn-vue: komponen setara (Sidebar, Button, Input). Token oklch & .shell-sweep terbawa. State via ref.",
+    "blade": "Kurang cocok — untuk Laravel/Blade gunakan template 'simobe-lpm'."
+  },
+  "conventions": {
+    "table": "@tanstack/react-table — https://tanstack.com/table (headless; render sendiri dengan komponen shadcn Table)",
+    "select": "react-select — https://react-select.com (searchable/multi). Di project shadcn boleh pakai Combobox (Popover+cmdk) sebagai alternatif native.",
+    "icons": "react-icons — https://react-icons.github.io/react-icons/ (import { FaUser } from 'react-icons/fa', dst). lucide-react tetap boleh untuk ikon UI shadcn.",
+    "note": "Stack JS/React: tabel headless TanStack + komponen sel sendiri; dropdown react-select; ikon react-icons."
+  }
+}

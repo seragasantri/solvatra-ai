@@ -1,0 +1,79 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-border: var(--border);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --radius-lg: var(--radius);
+}
+
+/* ---- Tema kanvas: ikut light/dark ---- */
+:root {
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.153 0.006 107.1);
+  --primary: oklch(0.6 0.18 210);            /* cyan-sky */
+  --primary-foreground: oklch(0.98 0.01 240);
+  --border: oklch(0.92 0.01 240);
+  --muted-foreground: oklch(0.55 0.02 240);
+}
+.dark {
+  --background: oklch(0.14 0.006 240);
+  --foreground: oklch(0.985 0.002 240);
+  --primary: oklch(0.6 0.18 210);
+  --primary-foreground: oklch(0.98 0.01 240);
+  --border: oklch(1 0 0 / 12%);
+  --muted-foreground: oklch(0.7 0.02 240);
+}
+
+/* ---- Rail SELALU gelap: token sidebar TIDAK ditimpa di .dark ---- */
+:root {
+  --sidebar: oklch(0.17 0.018 255);
+  --sidebar-foreground: oklch(0.87 0.012 255);
+  --sidebar-primary: oklch(0.72 0.15 210);
+  --sidebar-border: oklch(0.28 0.022 255);
+  --sidebar-accent: oklch(0.26 0.025 255);
+}
+
+/* Tekstur rail (grid halus + glow atas) digambar di lapisan dalam sidebar */
+[data-slot="sidebar-inner"],
+[data-slot="sidebar"][data-mobile="true"] {
+  background-image:
+    linear-gradient(to right, oklch(1 0 0 / 0.025) 1px, transparent 1px),
+    linear-gradient(to bottom, oklch(1 0 0 / 0.025) 1px, transparent 1px),
+    radial-gradient(ellipse 70% 32% at 50% 0%, oklch(0.72 0.15 210 / 0.18), transparent 72%),
+    linear-gradient(180deg, oklch(0.21 0.025 255) 0%, oklch(0.16 0.016 255) 55%, oklch(0.14 0.014 255) 100%);
+  background-size: 30px 30px, 30px 30px, 100% 100%, 100% 100%;
+}
+
+/* ---- Aksen khas: garis cahaya berjalan ---- */
+@keyframes shell-sweep {
+  0%   { transform: translateX(-60%); opacity: 0; }
+  35%  { opacity: 1; }
+  100% { transform: translateX(160%); opacity: 0; }
+}
+.shell-sweep::after {
+  content: "";
+  position: absolute; inset-block: 0; left: 0; width: 40%;
+  background: linear-gradient(90deg, transparent, var(--sidebar-primary), transparent);
+  animation: shell-sweep 5s ease-in-out infinite;
+}
+
+/* Menu aktif = glow cyan di atas rail gelap */
+[data-sidebar="menu-button"][data-active="true"] {
+  background: linear-gradient(90deg, oklch(0.72 0.15 210 / 0.2), oklch(0.72 0.15 210 / 0.04) 60%, transparent 85%);
+  color: oklch(0.85 0.13 210);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell-sweep::after { animation: none; }
+}

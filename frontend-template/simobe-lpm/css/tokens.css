@@ -1,0 +1,57 @@
+/* simobe-lpm design tokens + kelas kustom.
+   Untuk Tailwind: pindahkan blok `theme.extend` ke tailwind.config.js.
+   Untuk non-Tailwind: gunakan CSS variabel di :root. */
+
+/* --- Tailwind extend (salin ke tailwind.config.js) ---
+extend: {
+  fontFamily: { sans: ['Inter','sans-serif'], mono: ['JetBrains Mono','monospace'] },
+  colors: {
+    navy:  { 800:'#152e66', 900:'#0c1d45', 950:'#07122e' },
+    cyber: { sky:'#38bdf8', blue:'#2563eb', indigo:'#6366f1', orange:'#f97316', emerald:'#10b981' },
+  },
+  animation: {
+    'float':'float 6s ease-in-out infinite',
+    'shimmer':'shimmer 2.5s infinite',
+    'glow-pulse':'glowPulse 3s infinite alternate',
+  },
+  keyframes: {
+    float:{ '0%,100%':{transform:'translateY(0)'}, '50%':{transform:'translateY(-12px)'} },
+    shimmer:{ '100%':{transform:'translateX(100%)'} },
+    glowPulse:{ '0%':{boxShadow:'0 0 15px rgba(56,189,248,.2)'}, '100%':{boxShadow:'0 0 30px rgba(56,189,248,.45)'} },
+  },
+}
+--- */
+
+:root {
+  --navy-950:#07122e; --navy-900:#0c1d45; --navy-800:#152e66;
+  --cyber-sky:#38bdf8; --cyber-blue:#2563eb; --cyber-indigo:#6366f1; --cyber-orange:#f97316;
+}
+
+/* Background mesh gradien (halaman login / hero) */
+.tech-mesh-bg {
+  background-color:#07122e;
+  background-image:
+    radial-gradient(at 0% 0%,   rgba(37,99,235,.28) 0, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(249,115,22,.22) 0, transparent 50%),
+    radial-gradient(at 50% 100%,rgba(56,189,248,.22) 0, transparent 50%);
+}
+
+/* Panel glass gelap */
+.glass-card-dark {
+  background:rgba(12,29,69,.65);
+  backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px);
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:1rem;
+}
+
+/* Aksen garis glow (tepi atas sidebar/header) */
+.tech-glow-line { height:2px; background:linear-gradient(90deg,#2563eb,#38bdf8,#6366f1,#f97316); }
+
+/* Tombol tech */
+.btn-primary-tech {
+  background:linear-gradient(90deg,#2563eb,#38bdf8); color:#fff; font-weight:700;
+  border:none; border-radius:.75rem; padding:.6rem 1.1rem; transition:.2s;
+}
+.btn-primary-tech:hover { filter:brightness(1.08); box-shadow:0 0 24px rgba(56,189,248,.4); }
+.btn-danger-tech  { background:linear-gradient(90deg,#e11d48,#f97316); color:#fff; }
+.btn-cancel-tech  { background:rgba(148,163,184,.15); color:#cbd5e1; }

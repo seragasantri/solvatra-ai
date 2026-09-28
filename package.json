@@ -1,0 +1,41 @@
+{
+  "name": "solvatra-ai",
+  "version": "0.1.0",
+  "description": "AI agent CLI ringan bergaya Hermes: chat + memory persisten + skill system pluggable (agent bisa bikin skill sendiri) + generator frontend berbasis template. Multi-provider: Claude/OpenAI(Codex)/custom router.",
+  "type": "module",
+  "bin": {
+    "solvatra-ai": "src/index.js",
+    "traga-agent": "src/index.js"
+  },
+  "files": [
+    "src/",
+    "skills/",
+    "frontend-template/",
+    "persona.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "start": "node src/index.js",
+    "chat": "node src/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "ai", "agent", "cli", "chatbot", "llm", "claude", "anthropic", "openai",
+    "memory", "skills", "frontend-generator", "assistant"
+  ],
+  "author": "seragasantri",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/seragasantri/solvatra-ai.git"
+  },
+  "bugs": { "url": "https://github.com/seragasantri/solvatra-ai/issues" },
+  "homepage": "https://github.com/seragasantri/solvatra-ai#readme",
+  "publishConfig": { "access": "public" },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.69.0"
+  }
+}

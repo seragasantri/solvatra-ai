@@ -1,0 +1,102 @@
+// Konfigurasi terpusat, disiapkan untuk instalasi GLOBAL.
+// - PACKAGE_ROOT : lokasi kode + skill/template bawaan (read-only saat global).
+// - TRAGA_HOME   : ~/.ai-agent-traga — tempat state yang berubah (memori, .env, skill & template buatan user).
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+export const PACKAGE_ROOT = path.resolve(here, "..");
+export const PROJECT_ROOT = PACKAGE_ROOT; // alias lama (kompatibilitas)
+
+export const TRAGA_HOME = process.env.TRAGA_HOME || path.join(os.homedir(), ".ai-agent-traga");
+
+// Pastikan folder home + subfolder ada (aman dipanggil berulang).
+for (const d of ["", "data", "data/sessions", "skills", "frontend-template"]) {
+  try { fs.mkdirSync(path.join(TRAGA_HOME, d), { recursive: true }); } catch {}
+}
+
+// Muat .env: cwd (project yang sedang dikerjakan) -> ~/.traga -> package. Tidak menimpa env yang sudah ada.
+(function loadDotenv() {
+  const candidates = [
+    path.join(process.cwd(), ".env"),
+    path.join(TRAGA_HOME, ".env"),
+    path.join(PACKAGE_ROOT, ".env"),
+  ];
+  for (const file of candidates) {
+    try {
+      const raw = fs.readFileSync(file, "utf8");
+      for (const line of raw.split("\n")) {
+        const m = line.match(/^\s*([\w.]+)\s*=\s*(.*?)\s*$/);
+        if (m && process.env[m[1]] === undefined) {
+          process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
+        }
+      }
+    } catch { /* lanjut kandidat berikutnya */ }
+  }
+})();
+
+// Persona: env TRAGA_PERSONA -> ~/.traga/persona.md -> package/persona.md.
+function readPersona() {
+  if (process.env.TRAGA_PERSONA) return process.env.TRAGA_PERSONA;
+  for (const file of [path.join(TRAGA_HOME, "persona.md"), path.join(PACKAGE_ROOT, "persona.md")]) {
+    try { const t = fs.readFileSync(file, "utf8").trim(); if (t) return t; } catch {}
+  }
+  return null;
+}
+const persona = readPersona();
+
+const provider = (process.env.TRAGA_PROVIDER || "claude").toLowerCase();
+
+export const config = {
+  provider,
+  agentName: process.env.TRAGA_NAME || "Traga",
+  persona,
+  maxTokens: Number(process.env.TRAGA_MAX_TOKENS || 8000),
+  effort: process.env.TRAGA_EFFORT || "low",
+  memoryTopK: Number(process.env.TRAGA_MEMORY_TOPK || 8),
+
+  // State (di ~/.traga) — global, dipakai di mana pun.
+  dataDir: path.join(TRAGA_HOME, "data"),
+
+  // Skill: bawaan (package) + buatan user (~/.traga/skills). create_skill menulis ke yang user (writable).
+  bundledSkillsDir: path.join(PACKAGE_ROOT, "skills"),
+  userSkillsDir: path.join(TRAGA_HOME, "skills"),
+  skillsDir: path.join(TRAGA_HOME, "skills"),
+  get skillsDirs() { return [this.bundledSkillsDir, this.userSkillsDir]; },
+
+  // Template: bawaan + user.
+  bundledTemplatesDir: path.join(PACKAGE_ROOT, "frontend-template"),
+  userTemplatesDir: path.join(TRAGA_HOME, "frontend-template"),
+  templatesDir: path.join(PACKAGE_ROOT, "frontend-template"), // alias lama
+  get templatesDirs() { return [this.bundledTemplatesDir, this.userTemplatesDir]; },
+
+  providers: {
+    claude: {
+      label: "Claude (Anthropic, resmi)",
+      model: process.env.TRAGA_MODEL || "claude-opus-5",
+      apiKey: process.env.ANTHROPIC_API_KEY || null,
+      authToken: process.env.ANTHROPIC_AUTH_TOKEN || null,
+    },
+    codex: {
+      label: "Codex / OpenAI (resmi)",
+      baseUrl: process.env.TRAGA_CODEX_BASE_URL || "https://api.openai.com/v1",
+      model: process.env.TRAGA_CODEX_MODEL || "gpt-4o",
+      apiKey: process.env.TRAGA_CODEX_API_KEY || process.env.OPENAI_API_KEY || null,
+    },
+    custom: {
+      label: "Custom router (OpenAI-compatible)",
+      baseUrl: process.env.TRAGA_CUSTOM_BASE_URL || null,
+      model: process.env.TRAGA_CUSTOM_MODEL || null,
+      apiKey: process.env.TRAGA_CUSTOM_API_KEY || null,
+      extraHeaders: process.env.TRAGA_CUSTOM_HEADERS || null,
+    },
+  },
+};
+
+export function activeProvider() {
+  const p = config.providers[config.provider];
+  if (!p) throw new Error(`TRAGA_PROVIDER="${config.provider}" tidak dikenal. Pilih: claude | codex | custom.`);
+  return p;
+}
