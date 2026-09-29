@@ -8,7 +8,13 @@ function toAnthropic(turns) {
   const msgs = [];
   for (const t of turns) {
     if (t.role === "user") {
-      msgs.push({ role: "user", content: t.text });
+      if (t.images && t.images.length) {
+        const content = [{ type: "text", text: t.text }];
+        for (const im of t.images) content.push({ type: "image", source: { type: "base64", media_type: im.media_type, data: im.data } });
+        msgs.push({ role: "user", content });
+      } else {
+        msgs.push({ role: "user", content: t.text });
+      }
     } else if (t.role === "assistant") {
       const content = [];
       if (t.text) content.push({ type: "text", text: t.text });

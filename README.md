@@ -154,5 +154,5 @@ TRAGA_PROVIDER=custom \
 | `ANTHROPIC_API_KEY` | — | wajib |
 | `TRAGA_MODEL` | `claude-opus-5` | ganti `claude-haiku-4-5` untuk lebih murah/cepat |
 | `TRAGA_EFFORT` | `low` | `low`…`max` — naikkan untuk tugas berat |
-| `TRAGA_NAME` | `Traga` | nama panggilan agent |
+| `TRAGA_NAME` | `Solvatra` | nama panggilan agent |
 | `TRAGA_MEMORY_TOPK` | `8` | jumlah memori yang disuntik per giliran |

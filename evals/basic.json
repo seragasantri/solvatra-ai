@@ -1,0 +1,6 @@
+[
+  { "name": "kalkulator", "input": "hitung 12*9 berapa?", "expect": ["108"], "expect_tool": "calculator" },
+  { "name": "waktu", "input": "sekarang jam berapa di Jakarta?", "expect_tool": "get_time" },
+  { "name": "kesadaran-perangkat", "input": "kamu berjalan di perangkat apa?", "expect_tool": "system_info" },
+  { "name": "sapaan", "input": "halo, siapa kamu?", "expect": ["solvatra"] }
+]

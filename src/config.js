@@ -13,7 +13,7 @@ export const PROJECT_ROOT = PACKAGE_ROOT; // alias lama (kompatibilitas)
 export const TRAGA_HOME = process.env.TRAGA_HOME || path.join(os.homedir(), ".ai-agent-traga");
 
 // Pastikan folder home + subfolder ada (aman dipanggil berulang).
-for (const d of ["", "data", "data/sessions", "skills", "frontend-template"]) {
+for (const d of ["", "data", "data/sessions", "logs", "skills", "frontend-template"]) {
   try { fs.mkdirSync(path.join(TRAGA_HOME, d), { recursive: true }); } catch {}
 }
 
@@ -47,11 +47,16 @@ function readPersona() {
 }
 const persona = readPersona();
 
+const MODES = ["ask","auto","manual"];
+const mode = (() => { const m = (process.env.SOLVATRA_MODE || "ask").toLowerCase(); return MODES.includes(m) ? m : "ask"; })();
+
 const provider = (process.env.TRAGA_PROVIDER || "claude").toLowerCase();
 
 export const config = {
   provider,
-  agentName: process.env.TRAGA_NAME || "Traga",
+  mode,
+  MODES,
+  agentName: process.env.SOLVATRA_NAME || process.env.TRAGA_NAME || "Solvatra",
   persona,
   maxTokens: Number(process.env.TRAGA_MAX_TOKENS || 8000),
   effort: process.env.TRAGA_EFFORT || "low",
@@ -59,6 +64,13 @@ export const config = {
 
   // State (di ~/.traga) — global, dipakai di mana pun.
   dataDir: path.join(TRAGA_HOME, "data"),
+  logsDir: path.join(TRAGA_HOME, "logs"),
+
+  // Manajemen konteks (roadmap: memory/compression): jumlah giliran terakhir yang dikirim ke model.
+  contextTurns: Number(process.env.TRAGA_CONTEXT_TURNS || 24),
+  // Kontrol generasi (roadmap: generation controls) — dipakai provider OpenAI-compatible.
+  temperature: process.env.TRAGA_TEMPERATURE !== undefined ? Number(process.env.TRAGA_TEMPERATURE) : null,
+  topP: process.env.TRAGA_TOP_P !== undefined ? Number(process.env.TRAGA_TOP_P) : null,
 
   // Skill: bawaan (package) + buatan user (~/.traga/skills). create_skill menulis ke yang user (writable).
   bundledSkillsDir: path.join(PACKAGE_ROOT, "skills"),

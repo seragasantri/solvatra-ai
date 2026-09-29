@@ -8,7 +8,13 @@ function toOpenAI(system, turns) {
   const msgs = [{ role: "system", content: system }];
   for (const t of turns) {
     if (t.role === "user") {
-      msgs.push({ role: "user", content: t.text });
+      if (t.images && t.images.length) {
+        const content = [{ type: "text", text: t.text }];
+        for (const im of t.images) content.push({ type: "image_url", image_url: { url: `data:${im.media_type};base64,${im.data}` } });
+        msgs.push({ role: "user", content });
+      } else {
+        msgs.push({ role: "user", content: t.text });
+      }
     } else if (t.role === "assistant") {
       const m = { role: "assistant", content: t.text || null };
       if (t.toolCalls?.length) {
@@ -104,6 +110,8 @@ export function createProvider(pconf) {
             model: pconf.model,
             max_tokens: config.maxTokens,
             stream: true,
+            ...(config.temperature != null && !Number.isNaN(config.temperature) ? { temperature: config.temperature } : {}),
+            ...(config.topP != null && !Number.isNaN(config.topP) ? { top_p: config.topP } : {}),
             messages: toOpenAI(system, history),
             tools: apiTools.length ? apiTools : undefined,
           }),

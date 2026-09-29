@@ -108,6 +108,10 @@ export default {
       const outDir = input.out_dir;
       if (!outDir) return "write_files butuh out_dir.";
       if (!Array.isArray(input.files) || !input.files.length) return "write_files butuh files[].";
+      if (ctx.mode === "manual") return "Mode manual aktif — penulisan file dimatikan. Tunjukkan isi file yang diusulkan saja.";
+      if (typeof ctx.confirm === "function") {
+        if (!(await ctx.confirm(`Tulis ${input.files.length} file ke ${input.out_dir}?`))) return "Dibatalkan oleh user.";
+      }
       const root = path.resolve(outDir);
       const written = [];
       for (const f of input.files) {

@@ -50,11 +50,15 @@ export default {
       return `Skill "${name}" sudah ada. Set overwrite: true bila memang ingin mengganti.`;
     }
 
-    const schemaJson = JSON.stringify(input.input_schema || { type: "object", properties: {} }, null, 2);
+    if (ctx.mode === "manual") return "Mode manual aktif — pembuatan skill dimatikan. Jelaskan rencananya saja.";
+    if (typeof ctx.confirm === "function") {
+      if (!(await ctx.confirm(`Buat skill baru "${name}"? (akan dieksekusi dgn hak penuh)`))) return "Dibatalkan oleh user.";
+    }
+        const schemaJson = JSON.stringify(input.input_schema || { type: "object", properties: {} }, null, 2);
     const descJson = JSON.stringify(String(input.description || ""));
     const body = String(input.run_body || "return 'skill kosong';");
 
-    const source = `// dibuat oleh Traga (create_skill) pada ${new Date().toISOString()}
+    const source = `// dibuat oleh Solvatra (create_skill) pada ${new Date().toISOString()}
 // Skill ini berjalan dengan hak penuh Node. Tinjau sebelum dipercaya penuh.
 export default {
   name: ${JSON.stringify(name)},
