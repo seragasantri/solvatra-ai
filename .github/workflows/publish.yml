@@ -1,0 +1,40 @@
+name: Publish to npm
+
+# Jalan otomatis saat push tag versi, mis. v0.3.1
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      # Pastikan versi di package.json == tag (tanpa 'v'), cegah rilis tak sinkron.
+      - name: Cek versi cocok dengan tag
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          echo "tag=$TAG  package.json=$PKG"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::Tag ($TAG) != package.json version ($PKG). Samakan dulu."
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Publish ke npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
