@@ -71,6 +71,10 @@ export const config = {
   // Kontrol generasi (roadmap: generation controls) — dipakai provider OpenAI-compatible.
   temperature: process.env.TRAGA_TEMPERATURE !== undefined ? Number(process.env.TRAGA_TEMPERATURE) : null,
   topP: process.env.TRAGA_TOP_P !== undefined ? Number(process.env.TRAGA_TOP_P) : null,
+  topK: process.env.TRAGA_TOP_K !== undefined ? Number(process.env.TRAGA_TOP_K) : null,
+  frequencyPenalty: process.env.TRAGA_FREQUENCY_PENALTY !== undefined ? Number(process.env.TRAGA_FREQUENCY_PENALTY) : null,
+  presencePenalty: process.env.TRAGA_PRESENCE_PENALTY !== undefined ? Number(process.env.TRAGA_PRESENCE_PENALTY) : null,
+  promptCache: process.env.TRAGA_PROMPT_CACHE !== "0", // default aktif (Anthropic)
 
   // Skill: bawaan (package) + buatan user (~/.traga/skills). create_skill menulis ke yang user (writable).
   bundledSkillsDir: path.join(PACKAGE_ROOT, "skills"),

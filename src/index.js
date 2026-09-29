@@ -81,7 +81,7 @@ function banner(p, agent, skills, memory, mode, mcp) {
   console.log("  " + lbl("model") + C.cyan(agent.provider.model));
   console.log("  " + lbl("skill") + skills.length + C.dim("   memori ") + memory.all().length + (mcp ? C.dim("   mcp " + mcp) : ""));
   console.log("  " + lbl("mode") + modeBadge(mode) + C.dim("  ·  ganti: /mode"));
-  console.log("  " + lbl("perintah") + C.gray("/help /mode /attach /trace /skills /clear /exit"));
+  console.log("  " + lbl("perintah") + C.gray("/help /mode /attach /trace /cost /skills /exit"));
   console.log(line + "\n");
 }
 
@@ -129,6 +129,7 @@ async function main() {
     row("/skills", "daftar skill aktif");
     row("/attach <path>", "lampirkan file/gambar ke pesan berikutnya");
     row("/trace", "lihat metrik/observability giliran terakhir");
+    row("/cost", "token yang dipakai sesi ini");
     row("/clear", "bersihkan layar");
     row("/exit", "keluar (sesi disimpan)");
     console.log();
@@ -183,6 +184,15 @@ async function main() {
       console.log();
       return ask();
     }
+    if (input === "/cost") {
+      const u = agent.sessionUsage || {};
+      console.log("\n  " + C.bold("Token sesi ini"));
+      console.log("  " + C.dim("input :") + " " + (u.input_tokens || 0));
+      console.log("  " + C.dim("output:") + " " + (u.output_tokens || 0));
+      if (u.cache_read_input_tokens) console.log("  " + C.dim("cache :") + " " + u.cache_read_input_tokens + C.dim(" (dibaca dari cache)"));
+      console.log(C.dim("  (token dilaporkan provider; biaya tergantung tarif model.)\n"));
+      return ask();
+    }
     if (input === "/trace") {
       try {
         const dir = config.logsDir;
@@ -196,7 +206,7 @@ async function main() {
             const r = JSON.parse(l);
             const t = (r.ts || "").slice(11, 19);
             console.log("  " + C.gray(t) + "  " + C.cyan(r.model || "?") +
-              C.dim(`  ${r.ms}ms  tools:[${(r.tools || []).join(",")}]  in:${r.user_chars} out:${r.reply_chars}`));
+              C.dim(`  ${r.ms}ms  tools:[${(r.tools || []).join(",")}]  tok:${r.in_tokens ?? "?"}/${r.out_tokens ?? "?"}${r.cache_read ? " cache:" + r.cache_read : ""}`));
           } catch {}
         }
         console.log();

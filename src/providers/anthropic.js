@@ -55,6 +55,11 @@ export function createProvider(pconf) {
 
     async run({ system, turns, tools, runSkill, onDelta }) {
       const history = [...turns];
+      let usageAcc = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0 };
+      // Prompt caching (roadmap: LLM > Prompt Caching): cache system prompt yang stabil.
+      const systemParam = config.promptCache
+        ? [{ type: "text", text: system, cache_control: { type: "ephemeral" } }]
+        : system;
       const apiTools = tools.map((t) => ({
         name: t.name,
         description: t.description,
@@ -68,7 +73,7 @@ export function createProvider(pconf) {
           max_tokens: config.maxTokens,
           thinking: { type: "adaptive" },
           output_config: { effort: config.effort },
-          system,
+          system: systemParam,
           tools: apiTools,
           messages: toAnthropic(history),
         });
@@ -77,6 +82,11 @@ export function createProvider(pconf) {
           onDelta?.(d);
         });
         const msg = await stream.finalMessage();
+        if (msg.usage) {
+          usageAcc.input_tokens += msg.usage.input_tokens || 0;
+          usageAcc.output_tokens += msg.usage.output_tokens || 0;
+          usageAcc.cache_read_input_tokens += msg.usage.cache_read_input_tokens || 0;
+        }
 
         const text = msg.content.filter((b) => b.type === "text").map((b) => b.text).join("");
         const toolCalls = msg.content
@@ -86,10 +96,10 @@ export function createProvider(pconf) {
         history.push({ role: "assistant", text, toolCalls });
 
         if (msg.stop_reason === "refusal") {
-          return { text: finalText || "(permintaan ditolak oleh model)", turns: history };
+          return { text: finalText || "(permintaan ditolak oleh model)", turns: history, usage: usageAcc };
         }
         if (msg.stop_reason !== "tool_use") {
-          return { text: finalText.trim(), turns: history };
+          return { text: finalText.trim(), turns: history, usage: usageAcc };
         }
 
         const results = [];

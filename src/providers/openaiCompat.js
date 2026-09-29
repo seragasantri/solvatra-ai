@@ -42,6 +42,7 @@ async function readStream(res, onDelta) {
   let text = "";
   const toolAcc = new Map(); // index -> {id,name,argStr}
   let finishReason = null;
+  let usage = null;
 
   while (true) {
     const { value, done } = await reader.read();
@@ -56,6 +57,7 @@ async function readStream(res, onDelta) {
       if (payload === "[DONE]") continue;
       let json;
       try { json = JSON.parse(payload); } catch { continue; }
+      if (json.usage) usage = json.usage;
       const choice = json.choices?.[0];
       if (!choice) continue;
       const delta = choice.delta || {};
@@ -77,7 +79,7 @@ async function readStream(res, onDelta) {
     try { input = a.argStr ? JSON.parse(a.argStr) : {}; } catch { input = {}; }
     return { id: a.id || `call_${Math.random().toString(36).slice(2)}`, name: a.name, input };
   });
-  return { text, toolCalls, finishReason };
+  return { text, toolCalls, finishReason, usage };
 }
 
 export function createProvider(pconf) {
@@ -97,6 +99,7 @@ export function createProvider(pconf) {
 
     async run({ system, turns, tools, runSkill, onDelta }) {
       const history = [...turns];
+      let usageAcc = { input_tokens: 0, output_tokens: 0 };
       const apiTools = tools.map((t) => ({
         type: "function",
         function: { name: t.name, description: t.description, parameters: t.input_schema },
@@ -112,6 +115,10 @@ export function createProvider(pconf) {
             stream: true,
             ...(config.temperature != null && !Number.isNaN(config.temperature) ? { temperature: config.temperature } : {}),
             ...(config.topP != null && !Number.isNaN(config.topP) ? { top_p: config.topP } : {}),
+            ...(config.topK != null && !Number.isNaN(config.topK) ? { top_k: config.topK } : {}),
+            ...(config.frequencyPenalty != null && !Number.isNaN(config.frequencyPenalty) ? { frequency_penalty: config.frequencyPenalty } : {}),
+            ...(config.presencePenalty != null && !Number.isNaN(config.presencePenalty) ? { presence_penalty: config.presencePenalty } : {}),
+            stream_options: { include_usage: true },
             messages: toOpenAI(system, history),
             tools: apiTools.length ? apiTools : undefined,
           }),
@@ -121,7 +128,8 @@ export function createProvider(pconf) {
           throw new Error(`HTTP ${res.status} dari ${url}: ${body.slice(0, 300)}`);
         }
 
-        const { text, toolCalls, finishReason } = await readStream(res, onDelta);
+        const { text, toolCalls, finishReason, usage } = await readStream(res, onDelta);
+        if (usage) { usageAcc.input_tokens += usage.prompt_tokens || 0; usageAcc.output_tokens += usage.completion_tokens || 0; }
         history.push({ role: "assistant", text, toolCalls });
 
         if (finishReason === "tool_calls" && toolCalls.length) {
@@ -133,7 +141,7 @@ export function createProvider(pconf) {
           history.push({ role: "tool", results });
           continue;
         }
-        return { text: text.trim(), turns: history };
+        return { text: text.trim(), turns: history, usage: usageAcc };
       }
     },
   };

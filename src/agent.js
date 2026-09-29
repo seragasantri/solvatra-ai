@@ -80,6 +80,7 @@ export class Agent {
     this.skills = skills;
     this.turns = []; // riwayat netral: {role:'user'|'assistant'|'tool', ...}
     this.summary = "";        // ringkasan giliran lama (compaction)
+    this.sessionUsage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0 };
     this._summarizedUpto = 0; // indeks turn terakhir yang sudah diringkas
     this.confirm = confirm; // fungsi konfirmasi (y/n) dari CLI, utk skill berdampak
     this.getMode = () => config.mode; // dapat dioverride CLI untuk mode runtime
@@ -154,7 +155,7 @@ export class Agent {
     const toolsCalled = [];
     const t0 = Date.now();
 
-    const { text, turns } = await this.provider.run({
+    const { text, turns, usage } = await this.provider.run({
       system,
       turns: window,
       tools: this.tools,
@@ -169,6 +170,11 @@ export class Agent {
     // Gabungkan HANYA giliran baru (hasil provider) ke riwayat penuh.
     const newTurns = turns.slice(window.length);
     this.turns.push(...newTurns);
+    if (usage) {
+      this.sessionUsage.input_tokens += usage.input_tokens || 0;
+      this.sessionUsage.output_tokens += usage.output_tokens || 0;
+      this.sessionUsage.cache_read_input_tokens += usage.cache_read_input_tokens || 0;
+    }
 
     this._trace({
       ts: new Date().toISOString(),
@@ -181,6 +187,9 @@ export class Agent {
       ms: Date.now() - t0,
       turns_total: this.turns.length,
       context_turns: window.length,
+      in_tokens: usage?.input_tokens || null,
+      out_tokens: usage?.output_tokens || null,
+      cache_read: usage?.cache_read_input_tokens || null,
     });
     return text;
   }
