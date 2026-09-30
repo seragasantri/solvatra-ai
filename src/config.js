@@ -117,7 +117,7 @@ export function refresh() {
       baseUrl: SERVER_URL + "/v1",
       model: process.env.TRAGA_SOLVATRA_MODEL || fp("solvatra", "model") || null,
       apiKey: auth?.apiKey || null,
-      extraHeaders: JSON.stringify({ "User-Agent": `traga-agent (+${SERVER_URL})` }),
+      extraHeaders: JSON.stringify({ "User-Agent": `solvatra-ai (+${SERVER_URL})` }),
     },
     claude: {
       label: "Claude (Anthropic, resmi)",

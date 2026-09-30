@@ -14,7 +14,7 @@ const VERSION = (() => {
   try { return JSON.parse(fs.readFileSync(path.join(PACKAGE_ROOT, "package.json"), "utf8")).version; } catch { return "0"; }
 })();
 // UA eksplisit: Cloudflare di depan solvatra.web.id menolak UA bawaan tertentu (error 1010).
-export const USER_AGENT = `traga-agent/${VERSION} (+${SERVER_URL})`;
+export const USER_AGENT = `solvatra-ai/${VERSION} (+${SERVER_URL})`;
 
 export const loadAuth = readAuthFile;
 function saveAuth(a) {

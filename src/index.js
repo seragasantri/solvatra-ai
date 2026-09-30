@@ -183,7 +183,7 @@ async function availableModels() {
   } catch { return []; }
 }
 
-// Subperintah non-REPL: traga-agent login | logout | whoami
+// Subperintah non-REPL: solvatra-ai login | logout | whoami
 async function subcommand(cmd) {
   if (cmd === "login") {
     try { const a = await login(C); await afterLogin(); console.log(C.green(`\n  ✓ Login berhasil sebagai ${a.user.email}\n`)); return 0; }
@@ -197,7 +197,7 @@ async function subcommand(cmd) {
   if (cmd === "whoami") {
     const v = await verify();
     if (v.ok) { console.log(`\n  ${v.user.name} <${v.user.email}>` + C.dim(`  · ${v.apiKey.masked} · ${SERVER_URL}`) + "\n"); return 0; }
-    console.log(C.yellow(`\n  Belum login${v.reason === "network" ? ` (server tidak terjangkau: ${v.message})` : ""}. Jalankan: traga-agent login\n`));
+    console.log(C.yellow(`\n  Belum login${v.reason === "network" ? ` (server tidak terjangkau: ${v.message})` : ""}. Jalankan: solvatra-ai login\n`));
     return 1;
   }
   return null;

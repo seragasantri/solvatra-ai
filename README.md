@@ -84,12 +84,12 @@ Restart, dan agent langsung bisa memakainya. Tidak perlu ubah kode lain.
 
 ## Install global (dipakai di mana saja, seperti Claude Code / Hermes)
 
-Perintahnya **`traga-agent`** (nama `traga` sudah dipakai Hermes, jadi tidak ditabrak).
+Perintahnya **`solvatra-ai`** (alias lama `traga-agent` tetap ada).
 
 ```bash
 cd ai-agent-traga
 npm install
-npm link          # daftarkan perintah global 'traga-agent'
+npm link          # daftarkan perintah global 'solvatra-ai'
 # alternatif: npm install -g .
 ```
 
@@ -97,7 +97,7 @@ Lalu dari folder project mana pun:
 
 ```bash
 cd ~/project-apa-saja
-traga-agent
+solvatra-ai
 ```
 
 ### Di mana data & konfigurasi disimpan (global)
@@ -129,12 +129,12 @@ EOF
 Agent hanya bisa dipakai setelah login ke akun [solvatra.web.id](https://solvatra.web.id):
 
 ```bash
-traga-agent login     # buka browser -> cocokkan kode -> Setujui
-traga-agent whoami    # akun yang sedang login
-traga-agent logout    # cabut key perangkat ini & hapus kredensial lokal
+solvatra-ai login     # buka browser -> cocokkan kode -> Setujui
+solvatra-ai whoami    # akun yang sedang login
+solvatra-ai logout    # cabut key perangkat ini & hapus kredensial lokal
 ```
 
-Menjalankan `traga-agent` tanpa login otomatis memulai alur login. Setelah disetujui, CLI
+Menjalankan `solvatra-ai` tanpa login otomatis memulai alur login. Setelah disetujui, CLI
 menerima API key `tg_live_` atas nama akun itu (tersimpan di `~/.ai-agent-traga/auth.json`, mode 0600)
 dan memakainya untuk provider `solvatra` — model, kuota, dan batasnya mengikuti paket akun.
 Key bisa dicabut dari menu **API Keys** di web; CLI lalu meminta login ulang.
@@ -146,7 +146,7 @@ Pilih lewat env `TRAGA_PROVIDER`, lalu jalankan ulang.
 
 | Mode | Provider | Auth | Catatan |
 |---|---|---|---|
-| `solvatra` (default) | Solvatra AI Gateway | login akun (`traga-agent login`) | model dari `/v1/models` akun; ganti dengan `/model` |
+| `solvatra` (default) | Solvatra AI Gateway | login akun (`solvatra-ai login`) | model dari `/v1/models` akun; ganti dengan `/model` |
 | `claude` | Claude / Anthropic (resmi) | `ANTHROPIC_API_KEY` **atau** `ANTHROPIC_AUTH_TOKEN` (OAuth/SSO resmi) | jalur OAuth resmi via beta header `oauth-2025-04-20` |
 | `codex` | Codex / OpenAI (resmi) | `OPENAI_API_KEY` (API key / OAuth bearer resmi) | endpoint `api.openai.com`, format OpenAI |
 | `custom` | Router OpenAI-compatible mana pun | `TRAGA_CUSTOM_*` | OpenRouter / LiteLLM / ai-gateway — set `BASE_URL`+`MODEL`+`API_KEY` |
