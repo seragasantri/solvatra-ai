@@ -239,11 +239,19 @@ async function main() {
   const sessionFile = path.join(config.dataDir, "sessions", `${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
   const persist = () => { try { fs.mkdirSync(path.dirname(sessionFile), { recursive: true }); fs.writeFileSync(sessionFile, JSON.stringify(agent.turns, null, 2)); } catch {} };
 
+  // Giliran yang sedang berjalan; Esc/Ctrl+C membatalkannya tanpa keluar dari aplikasi.
+  let busy = null; // AbortController | null
+
   agent.confirm = (msg) => {
     if (mode === "auto") { process.stdout.write(C.dim(`  ✓ auto-accept: ${String(msg).split("\n")[0]}\n  `)); return Promise.resolve(true); }
     if (mode === "manual") return Promise.resolve(false);
-    return new Promise((res) => rl.question("\n" + C.yellow("  ⚠  " + msg) + C.dim("\n  Lanjutkan? (y/n) "),
-      (a) => res(/^y/i.test(a.trim()))));
+    const signal = busy?.signal;
+    return new Promise((res) => {
+      // Dibatalkan saat menunggu y/n -> anggap "tidak" & tutup pertanyaannya.
+      signal?.addEventListener("abort", () => res(false), { once: true });
+      rl.question("\n" + C.yellow("  ⚠  " + msg) + C.dim("\n  Lanjutkan? (y/n) "),
+        signal ? { signal } : {}, (a) => res(/^y/i.test(a.trim())));
+    });
   };
 
   banner(p, agent, skills, memory, mode, mcpCount);
@@ -266,6 +274,7 @@ async function main() {
     row("/cost", "token yang dipakai sesi ini");
     row("/clear", "bersihkan layar");
     row("/exit", "keluar (sesi disimpan)");
+    console.log("\n  " + C.dim("Esc / Ctrl+C saat AI menjawab = batalkan & edit ulang prompt · Ctrl+C 2x = keluar"));
     console.log();
   }
 
@@ -418,6 +427,7 @@ async function main() {
     // --- Giliran chat ---
     let finalInput = input;
     const images = pending.images.slice();
+    const notes = pending.notes.slice();
     if (pending.notes.length) {
       finalInput += "\n\n" + pending.notes.map((n) => `[Lampiran: ${n.name}]\n${n.text}`).join("\n\n");
     }
@@ -432,8 +442,11 @@ async function main() {
       process.stdout.write("  " + C.bold(C.cyan("✦ " + config.agentName)) + "\n\n  ");
       headerShown = true;
     };
+    busy = new AbortController();
+    const signal = busy.signal;
     try {
       await agent.chat(finalInput, {
+        signal,
         onTool: (name, input) => { const ti = toolInfo(name, input); spin.stop(); showHeader(); process.stdout.write("\n" + C.dim("  ⚙ " + ti.display) + "\n  "); spin.start(ti.label); },
         onDelta: (d) => { spin.stop(); showHeader(); process.stdout.write(d.replace(/\n/g, "\n  ")); },
         images,
@@ -444,16 +457,41 @@ async function main() {
     } catch (ex) {
       spin.stop();
       const name = ex?.constructor?.name || "Error";
+      if (signal.aborted) {
+        busy = null;
+        // Lampiran yang ikut terkirim dikembalikan juga, supaya bisa dikirim ulang.
+        pending.images.push(...images);
+        pending.notes.push(...notes);
+        console.log(C.yellow("\n\n  ⏹  Dibatalkan.") + C.dim(" Prompt dikembalikan — edit lalu Enter, atau Ctrl+U untuk menghapus."));
+        ask();
+        rl.write(input);
+        return;
+      }
       if (name === "AuthenticationError") console.error(C.yellow("\n  ⚠  Autentikasi gagal — cek kredensial provider.\n"));
       else if (config.provider === "solvatra" && /^HTTP 401\b/.test(ex.message)) console.error(C.yellow("\n  ⚠  Key Solvatra ditolak (dicabut/kedaluwarsa). Jalankan /logout lalu login ulang.\n"));
       else if (config.provider === "solvatra" && /^HTTP 429\b/.test(ex.message)) console.error(C.yellow(`\n  ⚠  Batas permintaan akun Solvatra tercapai. ${(ex.message.match(/"message":"([^"]+)"/) || [])[1] || "Coba lagi sebentar lagi."}\n`));
       else console.error(C.yellow(`\n  ⚠  ${name}: ${ex.message}\n`));
     }
+    busy = null;
     persist(); // autosave tiap giliran — aman walau terminal ditutup mendadak
     ask();
   }
 
-  rl.on("SIGINT", () => { persist(); rl.close(); });
+  // Ctrl+C: batalkan jawaban yang sedang berjalan -> kosongkan baris -> (2x dalam 2 detik) keluar.
+  let lastSigint = 0;
+  rl.on("SIGINT", () => {
+    if (busy) { busy.abort(); return; }
+    if (rl.line) { rl.write(null, { ctrl: true, name: "u" }); return; }
+    const now = Date.now();
+    if (now - lastSigint < 2000) { persist(); return rl.close(); }
+    lastSigint = now;
+    process.stdout.write(C.dim("\n  (Ctrl+C sekali lagi untuk keluar, atau ketik /exit)"));
+    rl.prompt(true);
+  });
+  // Esc saat AI sedang menjawab = batalkan (seperti Claude Code).
+  process.stdin.on("keypress", (_s, key) => {
+    if (busy && key?.name === "escape") busy.abort();
+  });
   rl.on("close", () => { persist(); process.exit(0); });
   ask();
 }

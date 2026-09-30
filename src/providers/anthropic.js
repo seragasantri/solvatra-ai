@@ -53,7 +53,7 @@ export function createProvider(pconf) {
     label: pconf.label,
     model: pconf.model,
 
-    async run({ system, turns, tools, runSkill, onDelta }) {
+    async run({ system, turns, tools, runSkill, onDelta, signal }) {
       const history = [...turns];
       let usageAcc = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0 };
       // Prompt caching (roadmap: LLM > Prompt Caching): cache system prompt yang stabil.
@@ -68,6 +68,7 @@ export function createProvider(pconf) {
       let finalText = "";
 
       while (true) {
+        signal?.throwIfAborted();
         const stream = client.messages.stream({
           model: pconf.model,
           max_tokens: config.maxTokens,
@@ -76,7 +77,7 @@ export function createProvider(pconf) {
           system: systemParam,
           tools: apiTools,
           messages: toAnthropic(history),
-        });
+        }, { signal });
         stream.on("text", (d) => {
           finalText += d;
           onDelta?.(d);
@@ -104,6 +105,7 @@ export function createProvider(pconf) {
 
         const results = [];
         for (const tc of toolCalls) {
+          signal?.throwIfAborted();
           const output = await runSkill(tc.name, tc.input);
           results.push({ id: tc.id, name: tc.name, output });
         }

@@ -97,7 +97,7 @@ export function createProvider(pconf) {
     label: pconf.label,
     model: pconf.model,
 
-    async run({ system, turns, tools, runSkill, onDelta }) {
+    async run({ system, turns, tools, runSkill, onDelta, signal }) {
       const history = [...turns];
       let usageAcc = { input_tokens: 0, output_tokens: 0 };
       const apiTools = tools.map((t) => ({
@@ -106,9 +106,11 @@ export function createProvider(pconf) {
       }));
 
       while (true) {
+        signal?.throwIfAborted();
         const res = await fetch(url, {
           method: "POST",
           headers,
+          signal,
           body: JSON.stringify({
             model: pconf.model,
             max_tokens: config.maxTokens,
@@ -135,6 +137,7 @@ export function createProvider(pconf) {
         if (finishReason === "tool_calls" && toolCalls.length) {
           const results = [];
           for (const tc of toolCalls) {
+            signal?.throwIfAborted();
             const output = await runSkill(tc.name, tc.input);
             results.push({ id: tc.id, name: tc.name, output });
           }

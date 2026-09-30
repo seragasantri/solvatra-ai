@@ -188,8 +188,9 @@ export class Agent {
     } catch { /* logging tak boleh menggagalkan chat */ }
   }
 
-  async chat(userInput, { onDelta, onTool, images } = {}) {
-    this.turns.push({ role: "user", text: userInput, images: images && images.length ? images : undefined });
+  async chat(userInput, { onDelta, onTool, images, signal } = {}) {
+    const userTurn = { role: "user", text: userInput, images: images && images.length ? images : undefined };
+    this.turns.push(userTurn);
     await this._maybeSummarize();
     const relevant = this.memory.search(userInput, config.memoryTopK);
     let system = buildSystemPrompt({ memories: relevant, skills: this.skills });
@@ -201,17 +202,30 @@ export class Agent {
     const toolsCalled = [];
     const t0 = Date.now();
 
-    const { text, turns, usage } = await this.provider.run({
-      system,
-      turns: window,
-      tools: this.tools,
-      runSkill: async (name, input) => {
-        toolsCalled.push(name);
-        try { onTool?.(name, input); } catch {}
-        return this._runSkill(name, input);
-      },
-      onDelta,
-    });
+    let result;
+    try {
+      result = await this.provider.run({
+        system,
+        turns: window,
+        tools: this.tools,
+        runSkill: async (name, input) => {
+          toolsCalled.push(name);
+          try { onTool?.(name, input); } catch {}
+          return this._runSkill(name, input);
+        },
+        onDelta,
+        signal,
+      });
+    } catch (e) {
+      // Dibatalkan user (Esc/Ctrl+C): prompt yang belum terjawab dibuang dari riwayat,
+      // supaya salah ketik tidak ikut terkirim di giliran berikutnya.
+      if (signal?.aborted) {
+        const i = this.turns.lastIndexOf(userTurn);
+        if (i >= 0) this.turns.splice(i, 1);
+      }
+      throw e;
+    }
+    const { text, turns, usage } = result;
 
     // Gabungkan HANYA giliran baru (hasil provider) ke riwayat penuh.
     const newTurns = turns.slice(window.length);
