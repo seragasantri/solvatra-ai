@@ -3,12 +3,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
-import { config, activeProvider } from "./config.js";
+import { config, activeProvider, setActiveProvider, setProviderField } from "./config.js";
 import { Memory } from "./memory.js";
 import { loadSkills } from "./skills.js";
 import { Agent } from "./agent.js";
 import { extractText, isImage, imageMediaType } from "./extract.js";
 import { loadMcpTools } from "./mcp.js";
+import { runSetup, needsSetup, providerReady } from "./setup.js";
 
 // --- Palet warna ANSI (tanpa dependency) ---
 const e = (n) => (s) => `\x1b[${n}m${s}\x1b[0m`;
@@ -62,6 +63,26 @@ function saveSession(turns) {
   } catch { return null; }
 }
 
+function stripAnsi(s) { return s.replace(/\x1b\[[0-9;]*m/g, ""); }
+function visLen(s) { return stripAnsi(s).length; }
+function drawBox(lines, sepAfter = []) {
+  const cols = process.stdout.columns || 80;
+  const CW = Math.min(Math.max(...lines.map(visLen), 46), Math.max(40, cols - 6));
+  const bar = (l, r) => C.gray(l + "\u2500".repeat(CW + 2) + r);
+  const rows = [bar("\u256d", "\u256e")];
+  lines.forEach((l, i) => {
+    rows.push(C.gray("\u2502 ") + l + " ".repeat(Math.max(0, CW - visLen(l))) + C.gray(" \u2502"));
+    if (sepAfter.includes(i)) rows.push(bar("\u251c", "\u2524"));
+  });
+  rows.push(bar("\u2570", "\u256f"));
+  return rows.join("\n");
+}
+function modeDot(m) {
+  const c = m === "auto" ? C.yellow : m === "manual" ? C.blue : C.green;
+  const d = m === "auto" ? "otomatis, tanpa konfirmasi" : m === "manual" ? "read-only, hanya usul" : "konfirmasi tiap aksi berdampak";
+  return c("\u25cf") + " " + m + C.dim("   " + d);
+}
+
 function modeTag(m) {
   const c = m === "auto" ? C.yellow : m === "manual" ? C.blue : C.green;
   return C.dim("[") + c(m) + C.dim("]");
@@ -72,29 +93,32 @@ function modeBadge(m) {
   return C.green("ask") + C.dim("   (minta konfirmasi tiap aksi berdampak)");
 }
 function banner(p, agent, skills, memory, mode, mcp) {
-  const line = C.gray("  " + "─".repeat(46));
   const lbl = (t) => C.dim(t.padEnd(10));
-  console.log();
-  console.log("  " + C.bold(C.cyan("✦ " + config.agentName)) + C.dim("  ·  siap membantu"));
-  console.log(line);
-  console.log("  " + lbl("provider") + p.label);
-  console.log("  " + lbl("model") + C.cyan(agent.provider.model));
-  console.log("  " + lbl("skill") + skills.length + C.dim("   memori ") + memory.all().length + (mcp ? C.dim("   mcp " + mcp) : ""));
-  console.log("  " + lbl("mode") + modeBadge(mode) + C.dim("  ·  ganti: /mode"));
-  console.log("  " + lbl("perintah") + C.gray("/help /mode /attach /trace /cost /skills /exit"));
-  console.log(line + "\n");
+  const lines = [
+    C.bold(C.cyan(config.agentName.toUpperCase())) + C.dim("  \u2014  AI agent \u00b7 coding \u00b7 frontend \u00b7 security"),
+    lbl("provider") + p.label,
+    lbl("model") + C.cyan(agent.provider.model),
+    lbl("kapasitas") + skills.length + C.dim(" skill") + "   " + memory.all().length + C.dim(" memori") + (mcp ? "   " + mcp + C.dim(" mcp") : ""),
+    lbl("mode") + modeDot(mode),
+  ];
+  console.log("\n" + drawBox(lines, [0]));
+  console.log(C.dim("  /help  /setup  /provider  /model  /mode  /attach  /trace  /exit") + "\n");
 }
 
 async function main() {
-  const err = preflight();
-  if (err) {
-    console.error(C.yellow(`\n  ⚠  ${err}\n`) + C.dim("     Lihat .env.example / ~/.ai-agent-traga/.env\n"));
-    process.exit(1);
-  }
-
   const memory = new Memory();
   const { tools, dispatch, skills } = await loadSkills();
-  // Roadmap: MCP — daftarkan tool dari server MCP terkonfigurasi (~/.ai-agent-traga/mcp.json)
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+
+  // Setup pertama kali: kalau provider belum siap (belum ada kredensial) -> wizard.
+  // Kalau sudah dikonfigurasi (atau via env) -> lewati.
+  if (needsSetup()) {
+    console.log(C.dim("\n  Belum ada provider yang siap. Mari atur dulu (sekali saja):"));
+    await runSetup(rl, C);
+  }
+
+  // Roadmap: MCP — daftarkan tool dari server MCP terkonfigurasi.
   let mcpCount = 0;
   try {
     const mcp = await loadMcpTools();
@@ -102,28 +126,33 @@ async function main() {
     for (const [k, v] of mcp.dispatch) dispatch.set(k, v);
     mcpCount = mcp.tools.length;
   } catch (e) { /* MCP opsional */ }
+
   const agent = new Agent({ memory, tools, dispatch, skills });
-  const p = activeProvider();
+  let p = activeProvider();
   let mode = config.mode;
   agent.getMode = () => mode;
   const pending = { images: [], notes: [] };
+  // Autosave sesi: file stabil per-run, ditulis tiap giliran & saat keluar (anti-kehilangan).
+  const sessionFile = path.join(config.dataDir, "sessions", `${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
+  const persist = () => { try { fs.mkdirSync(path.dirname(sessionFile), { recursive: true }); fs.writeFileSync(sessionFile, JSON.stringify(agent.turns, null, 2)); } catch {} };
 
-  banner(p, agent, skills, memory, mode, mcpCount);
-
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   agent.confirm = (msg) => {
     if (mode === "auto") { process.stdout.write(C.dim(`  ✓ auto-accept: ${String(msg).split("\n")[0]}\n  `)); return Promise.resolve(true); }
-    if (mode === "manual") return Promise.resolve(false); // ditolak; skill juga cek ctx.mode
+    if (mode === "manual") return Promise.resolve(false);
     return new Promise((res) => rl.question("\n" + C.yellow("  ⚠  " + msg) + C.dim("\n  Lanjutkan? (y/n) "),
       (a) => res(/^y/i.test(a.trim()))));
   };
+
+  banner(p, agent, skills, memory, mode, mcpCount);
   const ask = () => rl.question("\n  " + modeTag(mode) + C.dim("  /mode untuk ganti") + "\n  " + C.green("❯") + " ", handle);
 
   function cmdHelp() {
     console.log("\n  " + C.bold("Perintah"));
     const row = (c, d) => console.log("  " + C.cyan(c.padEnd(16)) + C.dim(d));
     row("/mode [ask|auto|manual]", "lihat/ganti mode approval");
-    row("/provider", "info provider & model aktif");
+    row("/setup", "atur ulang provider & model (wizard)");
+    row("/provider [nama]", "info / ganti provider (claude|codex|custom)");
+    row("/model [nama]", "lihat / ganti model provider aktif");
     row("/memory", "lihat semua memori tersimpan");
     row("/forget <id>", "hapus satu memori");
     row("/skills", "daftar skill aktif");
@@ -139,8 +168,8 @@ async function main() {
     const input = (line || "").trim();
 
     if (input === "/exit" || input === "/quit") {
-      const f = saveSession(agent.turns);
-      if (f) console.log(C.dim(`\n  Sesi disimpan: ${f}`));
+      persist();
+      if (agent.turns.length) console.log(C.dim(`\n  Sesi disimpan: ${sessionFile}`));
       console.log(C.dim("  Sampai jumpa! 👋\n"));
       return rl.close();
     }
@@ -158,10 +187,32 @@ async function main() {
       return ask();
     }
     if (input === "/clear") { process.stdout.write("\x1b[2J\x1b[H"); banner(p, agent, skills, memory, mode, mcpCount); return ask(); }
-    if (input === "/provider") {
-      console.log(`\n  ${C.dim("provider")}  ${C.cyan(config.provider)} — ${p.label}`);
-      console.log(`  ${C.dim("model")}     ${agent.provider.model}`);
-      console.log(C.dim("  Ganti: TRAGA_PROVIDER=claude|codex|custom lalu jalankan ulang.\n"));
+    if (input === "/setup") {
+      await runSetup(rl, C);
+      agent.rebuildProvider(); p = activeProvider();
+      banner(p, agent, skills, memory, mode, mcpCount);
+      return ask();
+    }
+    if (input === "/model" || input.startsWith("/model ")) {
+      const name = input.slice(6).trim();
+      if (!name) console.log(`\n  ${C.dim("model aktif:")} ${C.cyan(agent.provider.model)}  ${C.dim("(ganti: /model <nama>)")}\n`);
+      else { setProviderField(config.provider, "model", name); agent.rebuildProvider(); p = activeProvider(); console.log(`\n  model → ${C.cyan(agent.provider.model)}\n`); }
+      return ask();
+    }
+    if (input === "/provider" || input.startsWith("/provider ")) {
+      const arg = input.slice(9).trim().toLowerCase();
+      if (!arg) {
+        console.log(`\n  ${C.dim("provider")}  ${C.cyan(config.provider)} — ${p.label}`);
+        console.log(`  ${C.dim("model")}     ${agent.provider.model}`);
+        console.log("  " + C.dim("ganti: ") + C.cyan("/provider claude|codex|custom") + "\n");
+      } else if (["claude", "codex", "custom"].includes(arg)) {
+        setActiveProvider(arg);
+        if (!providerReady(arg)) { console.log(C.dim(`\n  Provider ${arg} belum lengkap — lanjut setup:`)); await runSetup(rl, C, { onlyProvider: arg }); }
+        agent.rebuildProvider(); p = activeProvider();
+        console.log("\n  provider → " + C.cyan(arg) + C.dim("  · model: ") + agent.provider.model + "\n");
+      } else {
+        console.log(C.yellow(`\n  provider tidak dikenal: ${arg} (claude|codex|custom)\n`));
+      }
       return ask();
     }
     if (input === "/memory") {
@@ -265,10 +316,12 @@ async function main() {
       if (name === "AuthenticationError") console.error(C.yellow("\n  ⚠  Autentikasi gagal — cek kredensial provider.\n"));
       else console.error(C.yellow(`\n  ⚠  ${name}: ${ex.message}\n`));
     }
+    persist(); // autosave tiap giliran — aman walau terminal ditutup mendadak
     ask();
   }
 
-  rl.on("close", () => process.exit(0));
+  rl.on("SIGINT", () => { persist(); rl.close(); });
+  rl.on("close", () => { persist(); process.exit(0); });
   ask();
 }
 

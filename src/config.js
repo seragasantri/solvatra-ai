@@ -47,72 +47,95 @@ function readPersona() {
 }
 const persona = readPersona();
 
-const MODES = ["ask","auto","manual"];
-const mode = (() => { const m = (process.env.SOLVATRA_MODE || "ask").toLowerCase(); return MODES.includes(m) ? m : "ask"; })();
+const MODES = ["ask", "auto", "manual"];
+export const CONFIG_FILE = path.join(TRAGA_HOME, "config.json");
 
-const provider = (process.env.TRAGA_PROVIDER || "claude").toLowerCase();
+// Konfigurasi tersimpan dari terminal/wizard (dipakai bila env tidak di-set).
+let fileCfg = (() => { try { return JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8")); } catch { return {}; } })();
+export function saveConfigFile() {
+  try { fs.mkdirSync(TRAGA_HOME, { recursive: true }); fs.writeFileSync(CONFIG_FILE, JSON.stringify(fileCfg, null, 2)); return true; }
+  catch { return false; }
+}
+const fp = (name, key) => fileCfg?.providers?.[name]?.[key] ?? null;
 
 export const config = {
-  provider,
-  mode,
-  MODES,
   agentName: process.env.SOLVATRA_NAME || process.env.TRAGA_NAME || "Solvatra",
   persona,
   maxTokens: Number(process.env.TRAGA_MAX_TOKENS || 8000),
   effort: process.env.TRAGA_EFFORT || "low",
   memoryTopK: Number(process.env.TRAGA_MEMORY_TOPK || 8),
+  MODES,
 
-  // State (di ~/.traga) — global, dipakai di mana pun.
   dataDir: path.join(TRAGA_HOME, "data"),
   logsDir: path.join(TRAGA_HOME, "logs"),
 
-  // Manajemen konteks (roadmap: memory/compression): jumlah giliran terakhir yang dikirim ke model.
   contextTurns: Number(process.env.TRAGA_CONTEXT_TURNS || 24),
-  // Kontrol generasi (roadmap: generation controls) — dipakai provider OpenAI-compatible.
   temperature: process.env.TRAGA_TEMPERATURE !== undefined ? Number(process.env.TRAGA_TEMPERATURE) : null,
   topP: process.env.TRAGA_TOP_P !== undefined ? Number(process.env.TRAGA_TOP_P) : null,
   topK: process.env.TRAGA_TOP_K !== undefined ? Number(process.env.TRAGA_TOP_K) : null,
   frequencyPenalty: process.env.TRAGA_FREQUENCY_PENALTY !== undefined ? Number(process.env.TRAGA_FREQUENCY_PENALTY) : null,
   presencePenalty: process.env.TRAGA_PRESENCE_PENALTY !== undefined ? Number(process.env.TRAGA_PRESENCE_PENALTY) : null,
-  promptCache: process.env.TRAGA_PROMPT_CACHE !== "0", // default aktif (Anthropic)
+  promptCache: process.env.TRAGA_PROMPT_CACHE !== "0",
 
-  // Skill: bawaan (package) + buatan user (~/.traga/skills). create_skill menulis ke yang user (writable).
   bundledSkillsDir: path.join(PACKAGE_ROOT, "skills"),
   userSkillsDir: path.join(TRAGA_HOME, "skills"),
   skillsDir: path.join(TRAGA_HOME, "skills"),
   get skillsDirs() { return [this.bundledSkillsDir, this.userSkillsDir]; },
 
-  // Template: bawaan + user.
+  knowledgeDir: path.join(PACKAGE_ROOT, "knowledge"),
   bundledTemplatesDir: path.join(PACKAGE_ROOT, "frontend-template"),
   userTemplatesDir: path.join(TRAGA_HOME, "frontend-template"),
-  templatesDir: path.join(PACKAGE_ROOT, "frontend-template"), // alias lama
+  templatesDir: path.join(PACKAGE_ROOT, "frontend-template"),
   get templatesDirs() { return [this.bundledTemplatesDir, this.userTemplatesDir]; },
 
-  providers: {
+  // diisi oleh refresh()
+  provider: "claude",
+  mode: "ask",
+  providers: {},
+};
+
+// Hitung ulang provider/mode/providers dari env + config.json (env menang).
+export function refresh() {
+  fileCfg = (() => { try { return JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8")); } catch { return fileCfg || {}; } })();
+  config.provider = (process.env.TRAGA_PROVIDER || fileCfg.provider || "claude").toLowerCase();
+  const m = (process.env.SOLVATRA_MODE || fileCfg.mode || "ask").toLowerCase();
+  config.mode = MODES.includes(m) ? m : "ask";
+  config.providers = {
     claude: {
       label: "Claude (Anthropic, resmi)",
-      model: process.env.TRAGA_MODEL || "claude-opus-5",
-      apiKey: process.env.ANTHROPIC_API_KEY || null,
-      authToken: process.env.ANTHROPIC_AUTH_TOKEN || null,
+      model: process.env.TRAGA_MODEL || fp("claude", "model") || "claude-opus-5",
+      apiKey: process.env.ANTHROPIC_API_KEY || fp("claude", "apiKey") || null,
+      authToken: process.env.ANTHROPIC_AUTH_TOKEN || fp("claude", "authToken") || null,
     },
     codex: {
       label: "Codex / OpenAI (resmi)",
-      baseUrl: process.env.TRAGA_CODEX_BASE_URL || "https://api.openai.com/v1",
-      model: process.env.TRAGA_CODEX_MODEL || "gpt-4o",
-      apiKey: process.env.TRAGA_CODEX_API_KEY || process.env.OPENAI_API_KEY || null,
+      baseUrl: process.env.TRAGA_CODEX_BASE_URL || fp("codex", "baseUrl") || "https://api.openai.com/v1",
+      model: process.env.TRAGA_CODEX_MODEL || fp("codex", "model") || "gpt-4o",
+      apiKey: process.env.TRAGA_CODEX_API_KEY || process.env.OPENAI_API_KEY || fp("codex", "apiKey") || null,
     },
     custom: {
       label: "Custom router (OpenAI-compatible)",
-      baseUrl: process.env.TRAGA_CUSTOM_BASE_URL || null,
-      model: process.env.TRAGA_CUSTOM_MODEL || null,
-      apiKey: process.env.TRAGA_CUSTOM_API_KEY || null,
-      extraHeaders: process.env.TRAGA_CUSTOM_HEADERS || null,
+      baseUrl: process.env.TRAGA_CUSTOM_BASE_URL || fp("custom", "baseUrl") || null,
+      model: process.env.TRAGA_CUSTOM_MODEL || fp("custom", "model") || null,
+      apiKey: process.env.TRAGA_CUSTOM_API_KEY || fp("custom", "apiKey") || null,
+      extraHeaders: process.env.TRAGA_CUSTOM_HEADERS || fp("custom", "extraHeaders") || null,
     },
-  },
-};
+  };
+}
+refresh();
+
+// Setter dari terminal/wizard — tulis ke config.json lalu refresh.
+export function setActiveProvider(name) { fileCfg.provider = name; saveConfigFile(); refresh(); }
+export function setMode(m) { fileCfg.mode = m; saveConfigFile(); refresh(); }
+export function setProviderField(name, key, value) {
+  fileCfg.providers = fileCfg.providers || {};
+  fileCfg.providers[name] = fileCfg.providers[name] || {};
+  fileCfg.providers[name][key] = value;
+  saveConfigFile(); refresh();
+}
 
 export function activeProvider() {
   const p = config.providers[config.provider];
-  if (!p) throw new Error(`TRAGA_PROVIDER="${config.provider}" tidak dikenal. Pilih: claude | codex | custom.`);
+  if (!p) throw new Error(`Provider "${config.provider}" tidak dikenal. Pilih: claude | codex | custom.`);
   return p;
 }
