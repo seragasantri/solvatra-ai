@@ -156,3 +156,19 @@ TRAGA_PROVIDER=custom \
 | `TRAGA_EFFORT` | `low` | `low`…`max` — naikkan untuk tugas berat |
 | `TRAGA_NAME` | `Solvatra` | nama panggilan agent |
 | `TRAGA_MEMORY_TOPK` | `8` | jumlah memori yang disuntik per giliran |
+
+## Rilis manual (tanpa CI/CD)
+
+Publikasi dilakukan manual dari mesin ini. Sekali jalan:
+
+```bash
+npm run release:patch   # 0.3.2 -> 0.3.3  (perbaikan kecil)
+npm run release:minor   # 0.3.x -> 0.4.0  (fitur)
+npm run release:major   # 0.x   -> 1.0.0  (perubahan besar)
+```
+
+Tiap perintah: naikkan versi + buat tag + push ke GitHub + `npm publish`.
+Karena akun npm memakai 2FA, saat `npm publish` akan muncul prompt **OTP** — masukkan kode dari authenticator.
+
+> Agar tak diminta OTP tiap kali: taruh Granular Access Token (publish, *bypass 2FA*) di `~/.npmrc`:
+> `//registry.npmjs.org/:_authToken=TOKEN_KAMU` (file ini hanya di mesinmu, jangan di-commit).
