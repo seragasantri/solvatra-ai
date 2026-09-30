@@ -241,7 +241,7 @@ async function main() {
     row("/provider [nama]", "info / ganti provider (solvatra|claude|codex|custom)");
     row("/whoami", "akun Solvatra yang sedang login");
     row("/logout", "logout akun Solvatra (key dicabut) lalu keluar");
-    row("/model [nama]", "lihat / ganti model provider aktif");
+    row("/model [no|nama]", "pilih model (solvatra: daftar sesuai paket akun)");
     row("/memory", "lihat semua memori tersimpan");
     row("/forget <id>", "hapus satu memori");
     row("/skills", "daftar skill aktif");
@@ -295,8 +295,22 @@ async function main() {
       return ask();
     }
     if (input === "/model" || input.startsWith("/model ")) {
-      const name = input.slice(6).trim();
+      let name = input.slice(6).trim();
+      // Provider solvatra: daftar model mengikuti paket akun — tinggal pilih nomornya.
+      const models = config.provider === "solvatra" ? await listModels() : [];
+      if (!name && models.length) {
+        console.log("\n  " + C.bold("Model tersedia untuk paket akun ini"));
+        models.forEach((m, i) => console.log("  " + C.cyan(String(i + 1).padStart(2)) + "  " + (m === agent.provider.model ? C.green(m + "  ● aktif") : m)));
+        name = await new Promise((res) => rl.question(C.dim("\n  pilih nomor/nama (Enter = batal): "), (a) => res(a.trim())));
+        if (!name) { console.log(); return ask(); }
+      }
+      if (/^\d+$/.test(name) && models.length) {
+        const n = Number(name);
+        if (!models[n - 1]) { console.log(C.yellow(`\n  nomor ${n} tidak ada (1-${models.length}).\n`)); return ask(); }
+        name = models[n - 1];
+      }
       if (!name) console.log(`\n  ${C.dim("model aktif:")} ${C.cyan(agent.provider.model)}  ${C.dim("(ganti: /model <nama>)")}\n`);
+      else if (models.length && !models.includes(name)) console.log(C.yellow(`\n  model "${name}" tidak tersedia di paket akun ini.\n`));
       else { setProviderField(config.provider, "model", name); agent.rebuildProvider(); p = activeProvider(); console.log(`\n  model → ${C.cyan(agent.provider.model)}\n`); }
       return ask();
     }
