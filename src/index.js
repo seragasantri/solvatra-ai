@@ -24,13 +24,19 @@ const isTTY = !!process.stdout.isTTY;
 // --- Spinner braille (hanya di TTY) ---
 function makeSpinner() {
   const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-  let timer = null, i = 0;
+  let timer = null, i = 0, label = "", since = 0;
   return {
-    start(label) {
+    // Label bisa diganti saat berjalan (mis. ukuran argumen tool yang sedang ditulis model).
+    set(l) { label = l; },
+    get running() { return !!timer; },
+    start(l) {
+      label = l;
       if (!isTTY || timer) return;
+      since = Date.now();
       process.stdout.write("\x1b[?25l");
       timer = setInterval(() => {
-        process.stdout.write("\r  " + C.cyan(frames[i++ % frames.length]) + " " + C.dim(label) + "   ");
+        const secs = Math.floor((Date.now() - since) / 1000);
+        process.stdout.write("\r\x1b[2K  " + C.cyan(frames[i++ % frames.length]) + " " + C.dim(label + (secs >= 2 ? `  ${secs}s` : "")));
       }, 80);
     },
     stop() {
@@ -88,6 +94,7 @@ function toolInfo(name, input) {
     read_document: "membaca dokumen\u2026",
     read_file: "membaca file\u2026",
     edit_file: "mengubah file\u2026",
+    write_file: "menulis file\u2026",
     fetch_url: "mengambil halaman web\u2026",
     search_code: "mencari di kode\u2026",
     list_dir: "melihat folder\u2026",
@@ -447,7 +454,29 @@ async function main() {
     try {
       await agent.chat(finalInput, {
         signal,
-        onTool: (name, input) => { const ti = toolInfo(name, input); spin.stop(); showHeader(); process.stdout.write("\n" + C.dim("  ⚙ " + ti.display) + "\n  "); spin.start(ti.label); },
+        onTool: (name, input) => { const ti = toolInfo(name, input); spin.stop(); showHeader(); process.stdout.write("\n" + C.cyan("  ⚙ ") + C.dim(ti.display) + "\n"); spin.start(ti.label); },
+        // Progres: model menulis argumen tool, hasil tiap tool, dan pemberitahuan pemulihan.
+        onEvent: (ev) => {
+          if (ev.type === "tool_args") {
+            if (!isTTY) return;
+            const l = `menyiapkan ${ev.name || "tool"}… ${(ev.size / 1024).toFixed(1)} KB`;
+            if (spin.running) spin.set(l); else { showHeader(); spin.start(l); }
+          } else if (ev.type === "tool_end") {
+            spin.stop(); showHeader();
+            // Path absolut di folder kerja ditampilkan relatif supaya ringkas.
+            const first = (String(ev.output || "").split("\n").find((l) => l.trim()) || "(tanpa keluaran)").split(process.cwd() + path.sep).join("");
+            const failed = /^(error|gagal|dibatalkan|mode manual|file .* (sudah ada|tidak ada|belum ada)|butuh )/i.test(first.trim());
+            const secs = (ev.ms / 1000).toFixed(1) + "s";
+            process.stdout.write((failed ? C.yellow("  ✗ ") : C.green("  ✓ ")) + C.dim(`${secs}  ${first.slice(0, 110)}`) + "\n  ");
+            spin.start("berpikir…");
+          } else if (ev.type === "notice") {
+            spin.stop(); showHeader();
+            process.stdout.write("\n" + C.yellow("  ↻ " + ev.message) + "\n  ");
+            spin.start("berpikir…");
+          } else if (ev.type === "model_start" && ev.step > 1) {
+            spin.set(`berpikir… (langkah ${ev.step})`);
+          }
+        },
         onDelta: (d) => { spin.stop(); showHeader(); process.stdout.write(d.replace(/\n/g, "\n  ")); },
         images,
       });

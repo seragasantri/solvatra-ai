@@ -2,6 +2,7 @@
 // menjalankan tool-loop dengan streaming teks.
 import Anthropic from "@anthropic-ai/sdk";
 import { config } from "../config.js";
+import { MAX_STEPS, badArgsMessage, looksLikeUnfinishedAction, NUDGE_TEXT, CONTINUE_TEXT, EMPTY_TEXT } from "./toolkit.js";
 
 // Ubah turn netral -> messages Anthropic.
 function toAnthropic(turns) {
@@ -53,7 +54,7 @@ export function createProvider(pconf) {
     label: pconf.label,
     model: pconf.model,
 
-    async run({ system, turns, tools, runSkill, onDelta, signal }) {
+    async run({ system, turns, tools, runSkill, onDelta, onEvent, signal }) {
       const history = [...turns];
       let usageAcc = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0 };
       // Prompt caching (roadmap: LLM > Prompt Caching): cache system prompt yang stabil.
@@ -66,9 +67,16 @@ export function createProvider(pconf) {
         input_schema: t.input_schema,
       }));
       let finalText = "";
+      const notice = (message) => { try { onEvent?.({ type: "notice", message }); } catch {} };
+      let nudged = false, continues = 0, emptyNudged = false, usedTools = false;
 
-      while (true) {
+      for (let step = 1; ; step++) {
         signal?.throwIfAborted();
+        if (step > MAX_STEPS) {
+          notice(`Batas ${MAX_STEPS} langkah tool per giliran tercapai — berhenti.`);
+          return { text: finalText.trim() || "(berhenti: terlalu banyak langkah tool)", turns: history, usage: usageAcc };
+        }
+        onEvent?.({ type: "model_start", step });
         const stream = client.messages.stream({
           model: pconf.model,
           max_tokens: config.maxTokens,
@@ -81,6 +89,12 @@ export function createProvider(pconf) {
         stream.on("text", (d) => {
           finalText += d;
           onDelta?.(d);
+        });
+        let argChars = 0;
+        stream.on("inputJson", (partial) => {
+          argChars += (partial || "").length;
+          const cur = stream.currentMessage?.content?.at?.(-1);
+          try { onEvent?.({ type: "tool_args", name: cur?.name || "tool", size: argChars }); } catch {}
         });
         const msg = await stream.finalMessage();
         if (msg.usage) {
@@ -99,17 +113,43 @@ export function createProvider(pconf) {
         if (msg.stop_reason === "refusal") {
           return { text: finalText || "(permintaan ditolak oleh model)", turns: history, usage: usageAcc };
         }
-        if (msg.stop_reason !== "tool_use") {
-          return { text: finalText.trim(), turns: history, usage: usageAcc };
+        const truncated = msg.stop_reason === "max_tokens";
+        if (toolCalls.length) {
+          // Tool call yang terpotong batas output tidak dijalankan — model diminta menulis bertahap.
+          const results = [];
+          for (const [i, tc] of toolCalls.entries()) {
+            signal?.throwIfAborted();
+            if (truncated && i === toolCalls.length - 1) {
+              notice(`Isi ${tc.name} terpotong batas output model — meminta model menulis bertahap.`);
+              results.push({ id: tc.id, name: tc.name, output: badArgsMessage(tc.name, true, argChars) });
+              continue;
+            }
+            const output = await runSkill(tc.name, tc.input);
+            results.push({ id: tc.id, name: tc.name, output });
+          }
+          history.push({ role: "tool", results });
+          usedTools = true;
+          continue;
         }
-
-        const results = [];
-        for (const tc of toolCalls) {
-          signal?.throwIfAborted();
-          const output = await runSkill(tc.name, tc.input);
-          results.push({ id: tc.id, name: tc.name, output });
+        if (usedTools && !text.trim() && !emptyNudged) {
+          emptyNudged = true;
+          notice("Model berhenti tanpa jawaban — meminta melanjutkan…");
+          history.push({ role: "user", text: EMPTY_TEXT, synthetic: true });
+          continue;
         }
-        history.push({ role: "tool", results });
+        if (truncated && continues < 3) {
+          continues++;
+          notice("Jawaban terpotong batas output — melanjutkan otomatis…");
+          history.push({ role: "user", text: CONTINUE_TEXT, synthetic: true });
+          continue;
+        }
+        if (!nudged && apiTools.length && looksLikeUnfinishedAction(text)) {
+          nudged = true;
+          notice("Model baru menjelaskan tanpa bertindak — meminta eksekusi…");
+          history.push({ role: "user", text: NUDGE_TEXT, synthetic: true });
+          continue;
+        }
+        return { text: finalText.trim(), turns: history, usage: usageAcc };
       }
     },
   };
