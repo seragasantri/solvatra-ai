@@ -167,6 +167,22 @@ async function ensureLogin() {
   return v.user;
 }
 
+// Model yang bisa dipilih di /model. solvatra: /v1/models akun (sesuai paket);
+// codex/custom: GET <baseUrl>/models (OpenAI-compatible). Gagal -> [] (ketik nama manual).
+async function availableModels() {
+  if (config.provider === "solvatra") return listModels();
+  const pc = config.providers[config.provider];
+  if (!pc?.baseUrl) return [];
+  try {
+    const headers = { Accept: "application/json" };
+    if (pc.apiKey) headers.Authorization = `Bearer ${pc.apiKey}`;
+    const r = await fetch(pc.baseUrl.replace(/\/+$/, "") + "/models", { headers, signal: AbortSignal.timeout(8000) });
+    if (!r.ok) return [];
+    const j = await r.json();
+    return (j.data || []).map((m) => m.id).filter(Boolean).sort();
+  } catch { return []; }
+}
+
 // Subperintah non-REPL: traga-agent login | logout | whoami
 async function subcommand(cmd) {
   if (cmd === "login") {
@@ -241,7 +257,7 @@ async function main() {
     row("/provider [nama]", "info / ganti provider (solvatra|claude|codex|custom)");
     row("/whoami", "akun Solvatra yang sedang login");
     row("/logout", "logout akun Solvatra (key dicabut) lalu keluar");
-    row("/model [no|nama]", "pilih model (solvatra: daftar sesuai paket akun)");
+    row("/model [no|nama]", "pilih model dari daftar (solvatra: sesuai paket akun)");
     row("/memory", "lihat semua memori tersimpan");
     row("/forget <id>", "hapus satu memori");
     row("/skills", "daftar skill aktif");
@@ -296,10 +312,10 @@ async function main() {
     }
     if (input === "/model" || input.startsWith("/model ")) {
       let name = input.slice(6).trim();
-      // Provider solvatra: daftar model mengikuti paket akun — tinggal pilih nomornya.
-      const models = config.provider === "solvatra" ? await listModels() : [];
+      // Daftar model dari provider — solvatra: sesuai paket akun. Tinggal pilih nomornya.
+      const models = await availableModels();
       if (!name && models.length) {
-        console.log("\n  " + C.bold("Model tersedia untuk paket akun ini"));
+        console.log("\n  " + C.bold(config.provider === "solvatra" ? "Model tersedia untuk paket akun ini" : `Model tersedia di ${p.label}`));
         models.forEach((m, i) => console.log("  " + C.cyan(String(i + 1).padStart(2)) + "  " + (m === agent.provider.model ? C.green(m + "  ● aktif") : m)));
         name = await new Promise((res) => rl.question(C.dim("\n  pilih nomor/nama (Enter = batal): "), (a) => res(a.trim())));
         if (!name) { console.log(); return ask(); }
@@ -310,7 +326,7 @@ async function main() {
         name = models[n - 1];
       }
       if (!name) console.log(`\n  ${C.dim("model aktif:")} ${C.cyan(agent.provider.model)}  ${C.dim("(ganti: /model <nama>)")}\n`);
-      else if (models.length && !models.includes(name)) console.log(C.yellow(`\n  model "${name}" tidak tersedia di paket akun ini.\n`));
+      else if (config.provider === "solvatra" && models.length && !models.includes(name)) console.log(C.yellow(`\n  model "${name}" tidak tersedia di paket akun ini.\n`));
       else { setProviderField(config.provider, "model", name); agent.rebuildProvider(); p = activeProvider(); console.log(`\n  model → ${C.cyan(agent.provider.model)}\n`); }
       return ask();
     }

@@ -143,7 +143,12 @@ export function refresh() {
 refresh();
 
 // Setter dari terminal/wizard — tulis ke config.json lalu refresh.
-export function setActiveProvider(name) { fileCfg.provider = name; saveConfigFile(); refresh(); }
+export function setActiveProvider(name) {
+  fileCfg.provider = name; saveConfigFile();
+  // Pilihan eksplisit dari terminal/wizard menang atas TRAGA_PROVIDER di .env untuk sesi ini.
+  process.env.TRAGA_PROVIDER = name;
+  refresh();
+}
 export function setMode(m) { fileCfg.mode = m; saveConfigFile(); refresh(); }
 export function setProviderField(name, key, value) {
   fileCfg.providers = fileCfg.providers || {};
