@@ -3,13 +3,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
-import { config, activeProvider, setActiveProvider, setProviderField } from "./config.js";
+import { config, activeProvider, setActiveProvider, setProviderField, refresh } from "./config.js";
 import { Memory } from "./memory.js";
 import { loadSkills } from "./skills.js";
 import { Agent } from "./agent.js";
 import { extractText, isImage, imageMediaType } from "./extract.js";
 import { loadMcpTools } from "./mcp.js";
 import { runSetup, needsSetup, providerReady } from "./setup.js";
+import { login, logout, verify, clearAuth, listModels, SERVER_URL } from "./auth.js";
 
 // --- Palet warna ANSI (tanpa dependency) ---
 const e = (n) => (s) => `\x1b[${n}m${s}\x1b[0m`;
@@ -77,6 +78,33 @@ function drawBox(lines, sepAfter = []) {
   rows.push(bar("\u2570", "\u256f"));
   return rows.join("\n");
 }
+function toolInfo(name, input) {
+  input = input || {};
+  const arg = input.name || input.command || input.path || input.url || input.query || input.topic || input.action || "";
+  const short = String(arg).replace(/\s+/g, " ").slice(0, 48);
+  const LABEL = {
+    create_skill: "membuat skill baru\u2026",
+    run_command: "menjalankan perintah\u2026",
+    read_document: "membaca dokumen\u2026",
+    read_file: "membaca file\u2026",
+    edit_file: "mengubah file\u2026",
+    fetch_url: "mengambil halaman web\u2026",
+    search_code: "mencari di kode\u2026",
+    list_dir: "melihat folder\u2026",
+    recall: "mengingat memori\u2026",
+    recall_session: "membaca sesi sebelumnya\u2026",
+    remember: "menyimpan ke memori\u2026",
+    cyber_security: "audit keamanan\u2026",
+    system_info: "memeriksa perangkat\u2026",
+    frontend: "menyiapkan frontend\u2026",
+    frontend_template: "memuat template\u2026",
+    write_files: "menulis file\u2026",
+  };
+  const label = LABEL[name] || (name.endsWith("_guide") ? "mengambil pengetahuan\u2026" : "memproses\u2026");
+  const display = short ? `${name} \u00b7 ${short}` : name;
+  return { display, label };
+}
+
 function modeDot(m) {
   const c = m === "auto" ? C.yellow : m === "manual" ? C.blue : C.green;
   const d = m === "auto" ? "otomatis, tanpa konfirmasi" : m === "manual" ? "read-only, hanya usul" : "konfirmasi tiap aksi berdampak";
@@ -96,18 +124,77 @@ function banner(p, agent, skills, memory, mode, mcp) {
   const lbl = (t) => C.dim(t.padEnd(10));
   const lines = [
     C.bold(C.cyan(config.agentName.toUpperCase())) + C.dim("  \u2014  AI agent \u00b7 coding \u00b7 frontend \u00b7 security"),
+    lbl("akun") + (account ? account.email : C.dim("-")),
     lbl("provider") + p.label,
     lbl("model") + C.cyan(agent.provider.model),
     lbl("kapasitas") + skills.length + C.dim(" skill") + "   " + memory.all().length + C.dim(" memori") + (mcp ? "   " + mcp + C.dim(" mcp") : ""),
     lbl("mode") + modeDot(mode),
   ];
   console.log("\n" + drawBox(lines, [0]));
-  console.log(C.dim("  /help  /setup  /provider  /model  /mode  /attach  /trace  /exit") + "\n");
+  console.log(C.dim("  /help  /setup  /provider  /model  /mode  /attach  /trace  /logout  /exit") + "\n");
+}
+
+// --- Login akun Solvatra (wajib sebelum agent bisa dipakai) ---
+let account = null;
+
+async function afterLogin() {
+  refresh();
+  // Provider solvatra tanpa model -> ambil model pertama yang tersedia untuk akun ini.
+  if (!config.providers.solvatra.model) {
+    const models = await listModels();
+    if (models[0]) setProviderField("solvatra", "model", models[0]);
+  }
+}
+
+async function ensureLogin() {
+  let v = await verify();
+  if (v.ok) return v.user;
+  if (v.reason === "network") {
+    console.error(C.yellow(`\n  ⚠  Tidak bisa menghubungi ${SERVER_URL} untuk memeriksa login: ${v.message}\n`));
+    return null;
+  }
+  if (v.reason === "invalid") {
+    clearAuth();
+    console.log(C.yellow("\n  Login sebelumnya tidak berlaku lagi (key dicabut/kedaluwarsa). Silakan login ulang."));
+  } else {
+    console.log(C.dim(`\n  ${config.agentName} memerlukan akun Solvatra (${SERVER_URL}). Login dulu — sekali saja per perangkat.`));
+  }
+  try { await login(C); } catch (e) { console.error(C.yellow(`\n  ⚠  ${e.message}\n`)); return null; }
+  await afterLogin();
+  v = await verify();
+  if (!v.ok) { console.error(C.yellow(`\n  ⚠  Login tersimpan tapi tidak bisa diverifikasi: ${v.message || v.reason}\n`)); return null; }
+  console.log(C.green(`  ✓ Login berhasil sebagai ${v.user.email}`));
+  return v.user;
+}
+
+// Subperintah non-REPL: traga-agent login | logout | whoami
+async function subcommand(cmd) {
+  if (cmd === "login") {
+    try { const a = await login(C); await afterLogin(); console.log(C.green(`\n  ✓ Login berhasil sebagai ${a.user.email}\n`)); return 0; }
+    catch (e) { console.error(C.yellow(`\n  ⚠  ${e.message}\n`)); return 1; }
+  }
+  if (cmd === "logout") {
+    const had = await logout();
+    console.log(had ? C.dim("\n  Logout: key perangkat ini dicabut & kredensial lokal dihapus.\n") : C.dim("\n  Belum login.\n"));
+    return 0;
+  }
+  if (cmd === "whoami") {
+    const v = await verify();
+    if (v.ok) { console.log(`\n  ${v.user.name} <${v.user.email}>` + C.dim(`  · ${v.apiKey.masked} · ${SERVER_URL}`) + "\n"); return 0; }
+    console.log(C.yellow(`\n  Belum login${v.reason === "network" ? ` (server tidak terjangkau: ${v.message})` : ""}. Jalankan: traga-agent login\n`));
+    return 1;
+  }
+  return null;
 }
 
 async function main() {
   const memory = new Memory();
   const { tools, dispatch, skills } = await loadSkills();
+
+  // Gerbang akun: tanpa login Solvatra yang valid, agent tidak dijalankan.
+  // Sebelum readline dibuat, supaya input yang di-pipe tidak habis selama menunggu jaringan.
+  account = await ensureLogin();
+  if (!account) process.exit(1);
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
@@ -151,7 +238,9 @@ async function main() {
     const row = (c, d) => console.log("  " + C.cyan(c.padEnd(16)) + C.dim(d));
     row("/mode [ask|auto|manual]", "lihat/ganti mode approval");
     row("/setup", "atur ulang provider & model (wizard)");
-    row("/provider [nama]", "info / ganti provider (claude|codex|custom)");
+    row("/provider [nama]", "info / ganti provider (solvatra|claude|codex|custom)");
+    row("/whoami", "akun Solvatra yang sedang login");
+    row("/logout", "logout akun Solvatra (key dicabut) lalu keluar");
     row("/model [nama]", "lihat / ganti model provider aktif");
     row("/memory", "lihat semua memori tersimpan");
     row("/forget <id>", "hapus satu memori");
@@ -174,6 +263,18 @@ async function main() {
       return rl.close();
     }
     if (input === "/help") { cmdHelp(); return ask(); }
+    if (input === "/whoami") {
+      const v = await verify();
+      if (v.ok) console.log(`\n  ${v.user.name} <${v.user.email}>` + C.dim(`  · ${v.apiKey.masked}`) + "\n");
+      else console.log(C.yellow(`\n  ${v.message || v.reason}\n`));
+      return ask();
+    }
+    if (input === "/logout") {
+      persist();
+      await logout();
+      console.log(C.dim("\n  Logout: key perangkat ini dicabut. Jalankan lagi untuk login ulang.\n"));
+      return rl.close();
+    }
     if (input === "/mode" || input.startsWith("/mode ")) {
       const arg = input.slice(5).trim().toLowerCase();
       if (!arg) {
@@ -204,14 +305,14 @@ async function main() {
       if (!arg) {
         console.log(`\n  ${C.dim("provider")}  ${C.cyan(config.provider)} — ${p.label}`);
         console.log(`  ${C.dim("model")}     ${agent.provider.model}`);
-        console.log("  " + C.dim("ganti: ") + C.cyan("/provider claude|codex|custom") + "\n");
-      } else if (["claude", "codex", "custom"].includes(arg)) {
+        console.log("  " + C.dim("ganti: ") + C.cyan("/provider solvatra|claude|codex|custom") + "\n");
+      } else if (["solvatra", "claude", "codex", "custom"].includes(arg)) {
         setActiveProvider(arg);
         if (!providerReady(arg)) { console.log(C.dim(`\n  Provider ${arg} belum lengkap — lanjut setup:`)); await runSetup(rl, C, { onlyProvider: arg }); }
         agent.rebuildProvider(); p = activeProvider();
         console.log("\n  provider → " + C.cyan(arg) + C.dim("  · model: ") + agent.provider.model + "\n");
       } else {
-        console.log(C.yellow(`\n  provider tidak dikenal: ${arg} (claude|codex|custom)\n`));
+        console.log(C.yellow(`\n  provider tidak dikenal: ${arg} (solvatra|claude|codex|custom)\n`));
       }
       return ask();
     }
@@ -303,7 +404,7 @@ async function main() {
     };
     try {
       await agent.chat(finalInput, {
-        onTool: (name) => { spin.stop(); showHeader(); process.stdout.write("\n" + C.dim(`  ⚙ ${name}`) + "\n  "); spin.start("memproses…"); },
+        onTool: (name, input) => { const ti = toolInfo(name, input); spin.stop(); showHeader(); process.stdout.write("\n" + C.dim("  ⚙ " + ti.display) + "\n  "); spin.start(ti.label); },
         onDelta: (d) => { spin.stop(); showHeader(); process.stdout.write(d.replace(/\n/g, "\n  ")); },
         images,
       });
@@ -314,6 +415,8 @@ async function main() {
       spin.stop();
       const name = ex?.constructor?.name || "Error";
       if (name === "AuthenticationError") console.error(C.yellow("\n  ⚠  Autentikasi gagal — cek kredensial provider.\n"));
+      else if (config.provider === "solvatra" && /^HTTP 401\b/.test(ex.message)) console.error(C.yellow("\n  ⚠  Key Solvatra ditolak (dicabut/kedaluwarsa). Jalankan /logout lalu login ulang.\n"));
+      else if (config.provider === "solvatra" && /^HTTP 429\b/.test(ex.message)) console.error(C.yellow(`\n  ⚠  Batas permintaan akun Solvatra tercapai. ${(ex.message.match(/"message":"([^"]+)"/) || [])[1] || "Coba lagi sebentar lagi."}\n`));
       else console.error(C.yellow(`\n  ⚠  ${name}: ${ex.message}\n`));
     }
     persist(); // autosave tiap giliran — aman walau terminal ditutup mendadak
@@ -325,4 +428,6 @@ async function main() {
   ask();
 }
 
-main();
+const sub = process.argv[2];
+if (["login", "logout", "whoami"].includes(sub)) subcommand(sub).then((code) => process.exit(code ?? 0));
+else main();

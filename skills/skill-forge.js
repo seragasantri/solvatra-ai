@@ -73,9 +73,10 @@ ${body.split("\n").map((l) => "    " + l).join("\n")}
     // Tulis file lalu tes-impor. Kalau gagal, kembalikan ke keadaan semula.
     const backup = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null;
     fs.writeFileSync(file, source);
+    let sk;
     try {
       const mod = await import(pathToFileURL(file).href + `?t=${Date.now()}`);
-      const sk = mod.default;
+      sk = mod.default;
       if (!sk || sk.name !== name || typeof sk.run !== "function") {
         throw new Error("modul tidak mengekspor default { name, run } yang benar");
       }
@@ -85,7 +86,8 @@ ${body.split("\n").map((l) => "    " + l).join("\n")}
       return `Gagal membuat skill "${name}": ${e.message}. Perbaiki run_body/input_schema lalu coba lagi.`;
     }
 
-    const count = await ctx.reloadSkills();
-    return `Skill "${name}" dibuat & aktif (total ${count} skill). File: ${file}. Bisa dipakai mulai giliran berikutnya.`;
+    // Registrasi inkremental (cepat) — reuse modul yang sudah di-impor, tanpa reload semua skill.
+    const count = typeof ctx.addSkill === "function" ? ctx.addSkill(sk) : await ctx.reloadSkills();
+    return `Skill "${name}" dibuat & aktif${count ? ` (total ${count} skill)` : ""}. File: ${file}. Bisa dipakai mulai giliran berikutnya.`;
   },
 };

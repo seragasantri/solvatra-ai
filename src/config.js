@@ -47,6 +47,16 @@ function readPersona() {
 }
 const persona = readPersona();
 
+// Akun Solvatra: agent wajib login (lihat auth.js). Key hasil login dipakai provider "solvatra".
+export const SERVER_URL = (process.env.TRAGA_SERVER_URL || "https://solvatra.web.id").replace(/\/+$/, "");
+export const AUTH_FILE = path.join(TRAGA_HOME, "auth.json");
+export function readAuthFile() {
+  try {
+    const a = JSON.parse(fs.readFileSync(AUTH_FILE, "utf8"));
+    return a?.apiKey && a.server === SERVER_URL ? a : null;
+  } catch { return null; }
+}
+
 const MODES = ["ask", "auto", "manual"];
 export const CONFIG_FILE = path.join(TRAGA_HOME, "config.json");
 
@@ -89,7 +99,7 @@ export const config = {
   get templatesDirs() { return [this.bundledTemplatesDir, this.userTemplatesDir]; },
 
   // diisi oleh refresh()
-  provider: "claude",
+  provider: "solvatra",
   mode: "ask",
   providers: {},
 };
@@ -97,10 +107,18 @@ export const config = {
 // Hitung ulang provider/mode/providers dari env + config.json (env menang).
 export function refresh() {
   fileCfg = (() => { try { return JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8")); } catch { return fileCfg || {}; } })();
-  config.provider = (process.env.TRAGA_PROVIDER || fileCfg.provider || "claude").toLowerCase();
+  config.provider = (process.env.TRAGA_PROVIDER || fileCfg.provider || "solvatra").toLowerCase();
   const m = (process.env.SOLVATRA_MODE || fileCfg.mode || "ask").toLowerCase();
   config.mode = MODES.includes(m) ? m : "ask";
+  const auth = readAuthFile();
   config.providers = {
+    solvatra: {
+      label: "Solvatra AI Gateway (akun solvatra.web.id)",
+      baseUrl: SERVER_URL + "/v1",
+      model: process.env.TRAGA_SOLVATRA_MODEL || fp("solvatra", "model") || null,
+      apiKey: auth?.apiKey || null,
+      extraHeaders: JSON.stringify({ "User-Agent": `traga-agent (+${SERVER_URL})` }),
+    },
     claude: {
       label: "Claude (Anthropic, resmi)",
       model: process.env.TRAGA_MODEL || fp("claude", "model") || "claude-opus-5",
@@ -136,6 +154,6 @@ export function setProviderField(name, key, value) {
 
 export function activeProvider() {
   const p = config.providers[config.provider];
-  if (!p) throw new Error(`Provider "${config.provider}" tidak dikenal. Pilih: claude | codex | custom.`);
+  if (!p) throw new Error(`Provider "${config.provider}" tidak dikenal. Pilih: solvatra | claude | codex | custom.`);
   return p;
 }

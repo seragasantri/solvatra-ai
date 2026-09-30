@@ -124,12 +124,29 @@ TRAGA_CUSTOM_MODEL=ocg/deepseek-v4-flash-vision-exp
 EOF
 ```
 
-## Tiga pilihan provider (seperti router)
+## Login akun Solvatra (wajib)
+
+Agent hanya bisa dipakai setelah login ke akun [solvatra.web.id](https://solvatra.web.id):
+
+```bash
+traga-agent login     # buka browser -> cocokkan kode -> Setujui
+traga-agent whoami    # akun yang sedang login
+traga-agent logout    # cabut key perangkat ini & hapus kredensial lokal
+```
+
+Menjalankan `traga-agent` tanpa login otomatis memulai alur login. Setelah disetujui, CLI
+menerima API key `tg_live_` atas nama akun itu (tersimpan di `~/.ai-agent-traga/auth.json`, mode 0600)
+dan memakainya untuk provider `solvatra` — model, kuota, dan batasnya mengikuti paket akun.
+Key bisa dicabut dari menu **API Keys** di web; CLI lalu meminta login ulang.
+Di server tanpa layar (SSH) set `TRAGA_NO_BROWSER=1` lalu buka URL yang ditampilkan dari perangkat lain.
+
+## Pilihan provider (seperti router)
 
 Pilih lewat env `TRAGA_PROVIDER`, lalu jalankan ulang.
 
 | Mode | Provider | Auth | Catatan |
 |---|---|---|---|
+| `solvatra` (default) | Solvatra AI Gateway | login akun (`traga-agent login`) | model dari `/v1/models` akun; ganti dengan `/model` |
 | `claude` | Claude / Anthropic (resmi) | `ANTHROPIC_API_KEY` **atau** `ANTHROPIC_AUTH_TOKEN` (OAuth/SSO resmi) | jalur OAuth resmi via beta header `oauth-2025-04-20` |
 | `codex` | Codex / OpenAI (resmi) | `OPENAI_API_KEY` (API key / OAuth bearer resmi) | endpoint `api.openai.com`, format OpenAI |
 | `custom` | Router OpenAI-compatible mana pun | `TRAGA_CUSTOM_*` | OpenRouter / LiteLLM / ai-gateway — set `BASE_URL`+`MODEL`+`API_KEY` |
@@ -151,7 +168,10 @@ TRAGA_PROVIDER=custom \
 
 | Variabel | Default | Keterangan |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | — | wajib |
+| `TRAGA_SERVER_URL` | `https://solvatra.web.id` | server akun Solvatra (login + gateway) |
+| `TRAGA_SOLVATRA_MODEL` | model pertama akun | model untuk provider `solvatra` |
+| `TRAGA_NO_BROWSER` | — | `1` = jangan buka browser saat login |
+| `ANTHROPIC_API_KEY` | — | untuk provider `claude` |
 | `TRAGA_MODEL` | `claude-opus-5` | ganti `claude-haiku-4-5` untuk lebih murah/cepat |
 | `TRAGA_EFFORT` | `low` | `low`…`max` — naikkan untuk tugas berat |
 | `TRAGA_NAME` | `Solvatra` | nama panggilan agent |

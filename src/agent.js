@@ -123,6 +123,20 @@ export class Agent {
       this.skills = loaded.skills;
       return loaded.skills.length;
     };
+    // Registrasi 1 skill secara inkremental (jauh lebih cepat daripada reload semua).
+    this.addSkill = (skill) => {
+      if (!skill || !skill.name || typeof skill.run !== "function") return 0;
+      this.skills = this.skills.filter((s) => s.name !== skill.name);
+      this.tools = this.tools.filter((t) => t.name !== skill.name);
+      this.skills.push(skill);
+      this.tools.push({
+        name: skill.name,
+        description: skill.description || "",
+        input_schema: skill.input_schema || { type: "object", properties: {} },
+      });
+      this.dispatch.set(skill.name, skill.run);
+      return this.skills.length;
+    };
   }
 
   async _runSkill(name, input) {
@@ -133,6 +147,7 @@ export class Agent {
         memory: this.memory,
         config,
         reloadSkills: this.reloadSkills,
+        addSkill: this.addSkill,
         listSkills: () => this.skills.map((s) => s.name),
         confirm: this.confirm,
         mode: this.getMode ? this.getMode() : config.mode,
