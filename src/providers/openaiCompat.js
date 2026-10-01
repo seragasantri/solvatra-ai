@@ -13,8 +13,15 @@
 import { config } from "../config.js";
 import {
   MAX_STEPS, promptToolsSystem, parseTextToolCalls, makeTagFilter, badArgsMessage,
-  looksLikeUnfinishedAction, NUDGE_TEXT, CONTINUE_TEXT, EMPTY_TEXT,
+  looksLikeUnfinishedAction, NUDGE_TEXT, CONTINUE_TEXT, EMPTY_TEXT, parseToolArgs,
 } from "./toolkit.js";
+import fs from "node:fs";
+import path from "node:path";
+
+// Argumen tool yang tetap gagal di-parse dicatat (potongan awal & akhir) untuk diagnosis.
+function logBadArgs(rec) {
+  try { fs.appendFileSync(path.join(config.logsDir, "bad-tool-args.jsonl"), JSON.stringify({ ts: new Date().toISOString(), ...rec }) + "\n"); } catch {}
+}
 
 // Ubah turn netral -> messages OpenAI. promptTools: tool call/hasil dirender sebagai teks.
 function toOpenAI(system, turns, promptTools) {
@@ -110,11 +117,12 @@ async function readStream(res, { onText, onToolArgs }) {
   }
 
   const toolCalls = calls.filter((a) => a.name).map((a) => {
-    let input = {}, bad = false;
-    if (a.argStr.trim()) {
-      try { input = JSON.parse(a.argStr); } catch { bad = true; }
-    }
-    return { id: a.id || `call_${Math.random().toString(36).slice(2)}`, name: a.name, input, bad, size: a.argStr.length };
+    const parsed = parseToolArgs(a.argStr);
+    return {
+      id: a.id || `call_${Math.random().toString(36).slice(2)}`, name: a.name,
+      input: parsed.ok ? parsed.value : {}, bad: !parsed.ok, error: parsed.error, raw: parsed.ok ? null : a.argStr,
+      size: a.argStr.length,
+    };
   });
   return { text, toolCalls, finishReason, usage };
 }
@@ -214,7 +222,9 @@ export function createProvider(pconf) {
           for (const tc of toolCalls) {
             signal?.throwIfAborted();
             if (tc.bad) {
-              const output = badArgsMessage(tc.name, truncated, tc.size);
+              logBadArgs({ model: pconf.model, name: tc.name, finishReason: r.finishReason, size: tc.size, error: tc.error,
+                head: String(tc.raw).slice(0, 800), tail: String(tc.raw).slice(-400) });
+              const output = badArgsMessage(tc.name, truncated, tc.size, tc.error);
               notice(truncated
                 ? `Isi ${tc.name} terpotong batas output model (${(tc.size / 1024).toFixed(1)} KB) — meminta model menulis bertahap.`
                 : `Argumen ${tc.name} rusak — meminta model mengulang.`);

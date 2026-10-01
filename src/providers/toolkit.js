@@ -30,8 +30,8 @@ const TAG_RE = /<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/g;
 const FENCE_RE = /```(?:json|tool_call)?\s*(\{[\s\S]*?\})\s*```/g;
 
 function parseJsonLoose(s) {
-  const t = String(s).trim().replace(/^```(?:json)?\s*|\s*```$/g, "");
-  try { return JSON.parse(t); } catch { return undefined; }
+  const r = parseToolArgs(s);
+  return r.ok ? r.value : undefined;
 }
 
 /**
@@ -90,11 +90,12 @@ export function makeTagFilter(emit) {
 }
 
 /** Pesan untuk model saat argumen tool rusak/terpotong — tool TIDAK dijalankan. */
-export function badArgsMessage(name, truncated, size) {
+export function badArgsMessage(name, truncated, size, error) {
   return truncated
     ? `ERROR: argumen tool "${name}" TERPOTONG karena melebihi batas output model (${size} karakter). Tool TIDAK dijalankan, tidak ada file yang ditulis. ` +
       `Ulangi dengan potongan kecil: write_file mode "create" berisi ±100–150 baris pertama, lalu write_file mode "append" untuk bagian berikutnya sampai selesai.`
-    : `ERROR: argumen tool "${name}" bukan JSON valid. Tool TIDAK dijalankan. Panggil ulang dengan argumen JSON yang benar (escape tanda kutip & baris baru di dalam string).`;
+    : `ERROR: argumen tool "${name}" bukan JSON valid${error ? ` (${error})` : ""}. Tool TIDAK dijalankan. Panggil ulang dengan argumen JSON yang benar ` +
+      `(escape tanda kutip & baris baru di dalam string). Kalau isinya panjang, pecah: write_file mode "create" untuk bagian awal lalu "append".`;
 }
 
 /** Model hanya mengumumkan akan bertindak tanpa memanggil tool? (dorong sekali per giliran) */
@@ -115,3 +116,43 @@ export const EMPTY_TEXT =
 export const CONTINUE_TEXT =
   "[sistem agent] Jawabanmu terpotong di batas panjang output. Lanjutkan PERSIS dari kata terakhir tanpa mengulang. " +
   "Kalau sedang menulis file, pakai write_file bertahap (mode append).";
+
+// Perbaiki JSON "hampir benar" yang lazim dari model: karakter kontrol mentah (baris baru/tab)
+// di dalam string, dan escape tak valid seperti \$ \d \' (sering muncul saat menulis kode).
+function repairJsonStrings(s) {
+  let out = "", inStr = false;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (!inStr) { if (ch === '"') inStr = true; out += ch; continue; }
+    if (ch === "\\") {
+      const nx = s[i + 1];
+      if (nx !== undefined && '"\\/bfnrtu'.includes(nx)) { out += ch + nx; i++; }
+      else out += "\\\\"; // backslash liar -> literal
+      continue;
+    }
+    if (ch === '"') { inStr = false; out += ch; continue; }
+    const c = ch.charCodeAt(0);
+    if (c < 0x20) out += ch === "\n" ? "\\n" : ch === "\r" ? "\\r" : ch === "\t" ? "\\t" : "\\u" + c.toString(16).padStart(4, "0");
+    else out += ch;
+  }
+  return out;
+}
+
+/** Parse argumen tool dengan toleran. -> { ok, value, repaired } | { ok:false, error } */
+export function parseToolArgs(raw) {
+  const s = String(raw ?? "").trim();
+  if (!s) return { ok: true, value: {} };
+  const unfenced = s.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  const a = unfenced.indexOf("{"), b = unfenced.lastIndexOf("}");
+  const braces = a >= 0 && b > a ? unfenced.slice(a, b + 1) : "";
+  let error = "JSON tidak valid";
+  for (const t of [s, repairJsonStrings(s), unfenced, braces, braces && repairJsonStrings(braces)]) {
+    if (!t) continue;
+    try {
+      let v = JSON.parse(t);
+      if (typeof v === "string") { try { v = JSON.parse(v); } catch {} } // argumen ter-encode dua kali
+      if (v && typeof v === "object" && !Array.isArray(v)) return { ok: true, value: v, repaired: t !== s };
+    } catch (e) { if (t === s) error = e.message; }
+  }
+  return { ok: false, error };
+}

@@ -249,15 +249,22 @@ async function main() {
   // Giliran yang sedang berjalan; Esc/Ctrl+C membatalkannya tanpa keluar dari aplikasi.
   let busy = null; // AbortController | null
 
+  // Spinner giliran yang sedang berjalan — dihentikan saat menunggu jawaban y/n,
+  // supaya pertanyaannya tidak tertimpa animasi (dulu terlihat "menulis file… 1930s").
+  let activeSpin = null;
+
   agent.confirm = (msg) => {
     if (mode === "auto") { process.stdout.write(C.dim(`  ✓ auto-accept: ${String(msg).split("\n")[0]}\n  `)); return Promise.resolve(true); }
     if (mode === "manual") return Promise.resolve(false);
     const signal = busy?.signal;
+    const sp = activeSpin;
+    sp?.stop();
     return new Promise((res) => {
+      const done = (v) => { if (v) sp?.start("menjalankan…"); res(v); };
       // Dibatalkan saat menunggu y/n -> anggap "tidak" & tutup pertanyaannya.
-      signal?.addEventListener("abort", () => res(false), { once: true });
-      rl.question("\n" + C.yellow("  ⚠  " + msg) + C.dim("\n  Lanjutkan? (y/n) "),
-        signal ? { signal } : {}, (a) => res(/^y/i.test(a.trim())));
+      signal?.addEventListener("abort", () => done(false), { once: true });
+      rl.question("\n" + C.yellow("  ⚠  Butuh persetujuan: " + msg) + "\n  " + C.bold("Lanjutkan? (y/n) ") + (isTTY ? "\x07" : ""),
+        signal ? { signal } : {}, (a) => done(/^y/i.test(a.trim())));
     });
   };
 
@@ -441,6 +448,7 @@ async function main() {
     pending.images = []; pending.notes = [];
     console.log();
     const spin = makeSpinner();
+    activeSpin = spin;
     spin.start("berpikir…");
     let headerShown = false;
     const showHeader = () => {
