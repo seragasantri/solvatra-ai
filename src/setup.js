@@ -2,6 +2,7 @@
 // tersimpan ke ~/.ai-agent-traga/config.json. Dipanggil saat provider belum siap.
 import { config, setActiveProvider, setProviderField } from "./config.js";
 import { listModels } from "./auth.js";
+import { select } from "./select.js";
 
 export function providerReady(name = config.provider) {
   const p = config.providers[name];
@@ -33,13 +34,18 @@ export async function runSetup(rl, C, { onlyProvider = null } = {}) {
 
   if (!provider) {
     console.log("\n" + bold(cyan("  Setup Solvatra")) + dim("  — atur provider & model (tersimpan, tak perlu .env)"));
-    console.log("  " + cyan("1") + dim(" Solvatra AI Gateway — pakai akun solvatra.web.id (direkomendasikan)"));
-    console.log("  " + cyan("2") + dim(" Claude (Anthropic) — API key / OAuth token sendiri"));
-    console.log("  " + cyan("3") + dim(" Codex / OpenAI — API key sendiri"));
-    console.log("  " + cyan("4") + dim(" Custom router (OpenAI-compatible: OpenRouter, LiteLLM, dll)"));
-    const c = await ask(rl, C.green("  pilih [1-4] (default 1): "));
-    provider = { "1": "solvatra", "2": "claude", "3": "codex", "4": "custom", "": "solvatra" }[c] || c.toLowerCase();
-    if (!["solvatra", "claude", "codex", "custom"].includes(provider)) provider = "solvatra";
+    const names = ["solvatra", "claude", "codex", "custom"];
+    const i = await select(rl, {
+      C,
+      title: "  Pilih provider:",
+      options: [
+        { label: "Solvatra AI Gateway", hint: "akun solvatra.web.id (direkomendasikan)" },
+        { label: "Claude (Anthropic)", hint: "API key / OAuth token sendiri" },
+        { label: "Codex / OpenAI", hint: "API key sendiri" },
+        { label: "Custom router", hint: "OpenAI-compatible: OpenRouter, LiteLLM, dll" },
+      ],
+    });
+    provider = names[i] || "solvatra";
   }
   setActiveProvider(provider);
 
@@ -48,11 +54,15 @@ export async function runSetup(rl, C, { onlyProvider = null } = {}) {
     if (!models.length) {
       console.log(C.yellow("  ⚠ Akun ini belum punya model yang bisa dipakai (cek paket/kuota di solvatra.web.id)."));
     } else {
-      models.forEach((m, i) => console.log("  " + cyan(String(i + 1).padStart(2)) + " " + m));
-      const cur = config.providers.solvatra.model || models[0];
-      const a = await ask(rl, C.green(`  pilih model [nomor/nama] (default ${cur}): `));
-      const pick = /^\d+$/.test(a) ? models[Number(a) - 1] : a;
-      setProviderField("solvatra", "model", pick || cur);
+      const cur = Math.max(0, models.indexOf(config.providers.solvatra.model));
+      const i = await select(rl, {
+        C,
+        title: "  Pilih model (sesuai paket akun):",
+        options: models,
+        initial: cur,
+        hint: "↑/↓ pilih · Enter pakai model ini",
+      });
+      setProviderField("solvatra", "model", models[i >= 0 ? i : cur]);
     }
   } else if (provider === "claude") {
     const key = await askSecret(rl, C.green("  ANTHROPIC_API_KEY (kosong = pakai OAuth token): "));

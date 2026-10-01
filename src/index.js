@@ -11,6 +11,7 @@ import { extractText, isImage, imageMediaType } from "./extract.js";
 import { loadMcpTools } from "./mcp.js";
 import { runSetup, needsSetup, providerReady } from "./setup.js";
 import { login, logout, verify, clearAuth, listModels, SERVER_URL } from "./auth.js";
+import { select, isSelecting } from "./select.js";
 
 // --- Palet warna ANSI (tanpa dependency) ---
 const e = (n) => (s) => `\x1b[${n}m${s}\x1b[0m`;
@@ -253,19 +254,29 @@ async function main() {
   // supaya pertanyaannya tidak tertimpa animasi (dulu terlihat "menulis file… 1930s").
   let activeSpin = null;
 
-  agent.confirm = (msg) => {
+  agent.confirm = async (msg) => {
     if (mode === "auto") { process.stdout.write(C.dim(`  ✓ auto-accept: ${String(msg).split("\n")[0]}\n  `)); return Promise.resolve(true); }
     if (mode === "manual") return Promise.resolve(false);
-    const signal = busy?.signal;
     const sp = activeSpin;
     sp?.stop();
-    return new Promise((res) => {
-      const done = (v) => { if (v) sp?.start("menjalankan…"); res(v); };
-      // Dibatalkan saat menunggu y/n -> anggap "tidak" & tutup pertanyaannya.
-      signal?.addEventListener("abort", () => done(false), { once: true });
-      rl.question("\n" + C.yellow("  ⚠  Butuh persetujuan: " + msg) + "\n  " + C.bold("Lanjutkan? (y/n) ") + (isTTY ? "\x07" : ""),
-        signal ? { signal } : {}, (a) => done(/^y/i.test(a.trim())));
+    if (isTTY) process.stdout.write("\x07");
+    // Menu ↑/↓ (Enter pilih; y/n juga bisa). Esc = tolak aksi ini saja; Ctrl+C = batalkan seluruh giliran.
+    const choice = await select(rl, {
+      C,
+      title: "\n" + C.yellow("  ⚠  Butuh persetujuan: ") + String(msg).split("\n")[0].split(process.cwd() + path.sep).join(""),
+      options: [
+        { label: "Ya" },
+        { label: "Ya, dan setujui otomatis sampai sesi ini selesai", hint: "(mode auto)" },
+        { label: "Tidak" },
+      ],
+      shortcuts: { y: 0, a: 1, n: 2 },
+      hint: "↑/↓ pilih · Enter konfirmasi · y/n · Esc tolak",
+      signal: busy?.signal,
     });
+    if (choice === 1) { mode = "auto"; process.stdout.write(C.dim("  mode → auto (aksi berikutnya disetujui otomatis; /mode ask untuk kembali)\n")); }
+    const ok = choice === 0 || choice === 1;
+    if (ok) sp?.start("menjalankan…");
+    return ok;
   };
 
   banner(p, agent, skills, memory, mode, mcpCount);
@@ -338,10 +349,16 @@ async function main() {
       // Daftar model dari provider — solvatra: sesuai paket akun. Tinggal pilih nomornya.
       const models = await availableModels();
       if (!name && models.length) {
-        console.log("\n  " + C.bold(config.provider === "solvatra" ? "Model tersedia untuk paket akun ini" : `Model tersedia di ${p.label}`));
-        models.forEach((m, i) => console.log("  " + C.cyan(String(i + 1).padStart(2)) + "  " + (m === agent.provider.model ? C.green(m + "  ● aktif") : m)));
-        name = await new Promise((res) => rl.question(C.dim("\n  pilih nomor/nama (Enter = batal): "), (a) => res(a.trim())));
-        if (!name) { console.log(); return ask(); }
+        const cur = models.indexOf(agent.provider.model);
+        const i = await select(rl, {
+          C,
+          title: "\n  " + C.bold(config.provider === "solvatra" ? "Model tersedia untuk paket akun ini" : `Model tersedia di ${p.label}`),
+          options: models.map((m) => ({ label: m, hint: m === agent.provider.model ? "● aktif" : "" })),
+          initial: cur >= 0 ? cur : 0,
+          hint: "↑/↓ pilih · Enter pakai model ini · Esc batal",
+        });
+        if (i < 0) return ask();
+        name = models[i];
       }
       if (/^\d+$/.test(name) && models.length) {
         const n = Number(name);
@@ -518,6 +535,7 @@ async function main() {
   let lastSigint = 0;
   rl.on("SIGINT", () => {
     if (busy) { busy.abort(); return; }
+    if (isSelecting()) return; // menu menutup dirinya sendiri
     if (rl.line) { rl.write(null, { ctrl: true, name: "u" }); return; }
     const now = Date.now();
     if (now - lastSigint < 2000) { persist(); return rl.close(); }
@@ -527,7 +545,8 @@ async function main() {
   });
   // Esc saat AI sedang menjawab = batalkan (seperti Claude Code).
   process.stdin.on("keypress", (_s, key) => {
-    if (busy && key?.name === "escape") busy.abort();
+    // Esc di dalam menu pilihan ditangani menunya sendiri (= tolak/batal pilihan itu saja).
+    if (busy && key?.name === "escape" && !isSelecting()) busy.abort();
   });
   rl.on("close", () => { persist(); process.exit(0); });
   ask();
