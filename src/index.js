@@ -10,8 +10,9 @@ import { Agent } from "./agent.js";
 import { extractText, isImage, imageMediaType } from "./extract.js";
 import { loadMcpTools } from "./mcp.js";
 import { runSetup, needsSetup, providerReady } from "./setup.js";
-import { login, logout, verify, clearAuth, listModels, SERVER_URL } from "./auth.js";
+import { login, logout, verify, clearAuth, listModels, listModelHealth, SERVER_URL } from "./auth.js";
 import { select, isSelecting } from "./select.js";
+import { pickModel, bestModel, describe as describeModel } from "./models.js";
 
 // --- Palet warna ANSI (tanpa dependency) ---
 const e = (n) => (s) => `\x1b[${n}m${s}\x1b[0m`;
@@ -147,10 +148,10 @@ let account = null;
 
 async function afterLogin() {
   refresh();
-  // Provider solvatra tanpa model -> ambil model pertama yang tersedia untuk akun ini.
+  // Provider solvatra tanpa model -> pakai model yang direkomendasikan (stabil & terbukti bisa memanggil tool).
   if (!config.providers.solvatra.model) {
-    const models = await listModels();
-    if (models[0]) setProviderField("solvatra", "model", models[0]);
+    const best = bestModel(await listModelHealth());
+    if (best) setProviderField("solvatra", "model", best);
   }
 }
 
@@ -346,7 +347,15 @@ async function main() {
     }
     if (input === "/model" || input.startsWith("/model ")) {
       let name = input.slice(6).trim();
-      // Daftar model dari provider — solvatra: sesuai paket akun. Tinggal pilih nomornya.
+      // Solvatra: menu berlabel kesehatan (⭐ rekomendasi / stabil / kurang stabil / gangguan).
+      if (!name && config.provider === "solvatra") {
+        const chosen = await pickModel(rl, { C, current: agent.provider.model, title: "Model tersedia untuk paket akun ini" });
+        if (!chosen) return ask();
+        setProviderField("solvatra", "model", chosen); agent.rebuildProvider(); p = activeProvider();
+        console.log(`\n  model → ${C.cyan(agent.provider.model)}\n`);
+        return ask();
+      }
+      // Provider lain: daftar dari <baseUrl>/models.
       const models = await availableModels();
       if (!name && models.length) {
         const cur = models.indexOf(agent.provider.model);
@@ -534,7 +543,39 @@ async function main() {
         rl.write(input);
         return;
       }
-      if (name === "AuthenticationError") console.error(C.yellow("\n  ⚠  Autentikasi gagal — cek kredensial provider.\n"));
+      // Model gagal (ditolak upstream / server bermasalah / koneksi putus berulang):
+      // beri tahu dan tawarkan model stabil, lalu ulangi pertanyaan yang sama.
+      const modelFailure = config.provider === "solvatra" &&
+        (/^HTTP (400|404|409|422|500|502|503|504)\b/.test(ex.message) || /terputus berulang/.test(ex.message));
+      if (modelFailure) {
+        const failed = agent.provider.model;
+        const why = ex.message.replace(/^HTTP (\d+) dari \S+: ?/, "HTTP $1 — ").slice(0, 160);
+        console.error(C.yellow(`\n  ⚠  Model ${failed} sedang bermasalah (${why}).`));
+        const list = await listModelHealth();
+        const alts = list.filter((m) => m.id !== failed && m.status !== "unavailable")
+          .sort((x, y) => Number(y.recommended) - Number(x.recommended) || (x.status === "stable" ? -1 : 0) - (y.status === "stable" ? -1 : 0))
+          .slice(0, 3);
+        const options = [
+          ...alts.map((m) => ({ label: `Ganti ke ${m.id} lalu ulangi`, hint: describeModel(m, C) })),
+          { label: "Pilih model lain…" },
+          { label: `Tetap pakai ${failed}`, hint: "(tidak diulang)" },
+        ];
+        const k = await select(rl, { C, title: C.bold("  Ganti model dan ulangi pertanyaan ini?"), options });
+        let next = null;
+        if (k >= 0 && k < alts.length) next = alts[k].id;
+        else if (k === alts.length) next = await pickModel(rl, { C, current: failed, models: list });
+        if (next && next !== failed) {
+          setProviderField("solvatra", "model", next); agent.rebuildProvider(); p = activeProvider();
+          console.log(`  model → ${C.cyan(next)}` + C.dim("  · mengulang pertanyaan…"));
+          // giliran yang gagal dibuang dari riwayat supaya tidak terkirim dua kali
+          const t = agent.turns;
+          if (t.length && t[t.length - 1].role === "user") t.pop();
+          pending.images.push(...images); pending.notes.push(...notes);
+          busy = null;
+          return handle(input);
+        }
+        console.log(C.dim("  Tetap memakai model yang sama. Ganti kapan saja dengan /model.\n"));
+      } else if (name === "AuthenticationError") console.error(C.yellow("\n  ⚠  Autentikasi gagal — cek kredensial provider.\n"));
       else if (config.provider === "solvatra" && /^HTTP 401\b/.test(ex.message)) console.error(C.yellow("\n  ⚠  Key Solvatra ditolak (dicabut/kedaluwarsa). Jalankan /logout lalu login ulang.\n"));
       else if (config.provider === "solvatra" && /^HTTP 429\b/.test(ex.message)) console.error(C.yellow(`\n  ⚠  Batas permintaan akun Solvatra tercapai. ${(ex.message.match(/"message":"([^"]+)"/) || [])[1] || "Coba lagi sebentar lagi."}\n`));
       else console.error(C.yellow(`\n  ⚠  ${name}: ${ex.message}\n`));

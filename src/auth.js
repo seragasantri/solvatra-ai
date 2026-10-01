@@ -126,3 +126,17 @@ export async function listModels() {
     return r.status === 200 ? (r.json.data || []).map((m) => m.id) : [];
   } catch { return []; }
 }
+
+/**
+ * Model akun ini beserta kesehatannya (stable | unstable | unavailable | unknown) dan rekomendasi.
+ * Server lama tanpa /api/cli/models -> jatuh ke /v1/models dengan status "unknown".
+ */
+export async function listModelHealth() {
+  const a = loadAuth();
+  if (!a) return [];
+  try {
+    const r = await api("/api/cli/models", { key: a.apiKey });
+    if (r.status === 200 && Array.isArray(r.json?.data)) return r.json.data;
+  } catch {}
+  return (await listModels()).map((id) => ({ id, name: id, status: "unknown", recommended: false, reason: null }));
+}

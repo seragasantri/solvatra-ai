@@ -1,8 +1,8 @@
 // Setup wizard interaktif di terminal: pilih provider + isi kredensial/model,
 // tersimpan ke ~/.ai-agent-traga/config.json. Dipanggil saat provider belum siap.
 import { config, setActiveProvider, setProviderField } from "./config.js";
-import { listModels } from "./auth.js";
 import { select } from "./select.js";
+import { pickModel } from "./models.js";
 
 export function providerReady(name = config.provider) {
   const p = config.providers[name];
@@ -50,20 +50,9 @@ export async function runSetup(rl, C, { onlyProvider = null } = {}) {
   setActiveProvider(provider);
 
   if (provider === "solvatra") {
-    const models = await listModels();
-    if (!models.length) {
-      console.log(C.yellow("  ⚠ Akun ini belum punya model yang bisa dipakai (cek paket/kuota di solvatra.web.id)."));
-    } else {
-      const cur = Math.max(0, models.indexOf(config.providers.solvatra.model));
-      const i = await select(rl, {
-        C,
-        title: "  Pilih model (sesuai paket akun):",
-        options: models,
-        initial: cur,
-        hint: "↑/↓ pilih · Enter pakai model ini",
-      });
-      setProviderField("solvatra", "model", models[i >= 0 ? i : cur]);
-    }
+    const chosen = await pickModel(rl, { C, current: config.providers.solvatra.model, title: "Pilih model (sesuai paket akun)" });
+    if (chosen) setProviderField("solvatra", "model", chosen);
+    else if (!config.providers.solvatra.model) console.log(C.yellow("  ⚠ Belum ada model dipilih (cek paket/kuota di solvatra.web.id), atau jalankan /model."));
   } else if (provider === "claude") {
     const key = await askSecret(rl, C.green("  ANTHROPIC_API_KEY (kosong = pakai OAuth token): "));
     if (key) setProviderField("claude", "apiKey", key);
