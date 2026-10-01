@@ -1,6 +1,6 @@
 {
   "name": "solvatra-ai",
-  "version": "0.5.3",
+  "version": "0.6.0",
   "description": "AI agent CLI ringan bergaya Hermes: chat + memory persisten + skill system pluggable (agent bisa bikin skill sendiri) + generator frontend berbasis template. Multi-provider: Claude/OpenAI(Codex)/custom router.",
   "type": "module",
   "bin": {
