@@ -10,14 +10,29 @@ import { getProvider } from "./providers/index.js";
 
 // Model-based eval (roadmap: Evaluation Types > Model-Based Evals): nilai jawaban pakai LLM.
 async function judgeReply(rubric, input, reply) {
-  try {
+  // Model penilai sering tidak patuh format "mulai dengan YA/TIDAK" (membuka dengan
+  // "Saya akan menilai…"), jadi vonis diminta di baris terakhir yang eksplisit dan dicari di mana pun.
+  // Instruksi penilaian ditaruh juga di pesan user: sebagian model mengabaikan system prompt
+  // dan malah "menjawab" isi JAWABAN alih-alih menilainya.
+  const ask = async (extra = "") => {
     const provider = getProvider();
+    const rules = "Tugasmu HANYA menilai, bukan menjawab pertanyaannya. Tulis alasan singkat (maks 2 kalimat), " +
+      "lalu AKHIRI dengan satu baris persis: VONIS: YA  atau  VONIS: TIDAK" + extra;
     const { text } = await provider.run({
-      system: "Kamu penilai kualitas. Nilai apakah JAWABAN memenuhi KRITERIA. Balas HANYA 'YA' atau 'TIDAK' di awal, lalu alasan singkat.",
-      turns: [{ role: "user", text: `KRITERIA: ${rubric}\n\nPERTANYAAN: ${input}\n\nJAWABAN: ${reply}` }],
+      system: "Kamu penilai kualitas yang ketat. " + rules,
+      turns: [{ role: "user", text:
+        `Nilai apakah JAWABAN di bawah memenuhi KRITERIA.\n${rules}\n\nKRITERIA: ${rubric}\n\nPERTANYAAN ASLI: ${input}\n\n` +
+        `<<<JAWABAN\n${reply}\nJAWABAN>>>\n\nSekarang beri alasan singkat lalu baris VONIS.` }],
       tools: [], runSkill: async () => "", onDelta: null,
     });
-    return { ok: /^\s*ya\b/i.test(text || ""), detail: (text || "").replace(/\s+/g, " ").slice(0, 100) };
+    const all = [...String(text || "").matchAll(/VONIS\s*:\s*\**\s*(YA|TIDAK)/gi)];
+    const verdict = all.length ? all[all.length - 1][1].toUpperCase() : (/^\s*(ya|tidak)\b/i.exec(text || "")?.[1] || "").toUpperCase();
+    return { verdict, text: String(text || "") };
+  };
+  try {
+    let r = await ask();
+    if (!r.verdict) r = await ask(" — WAJIB ada baris VONIS di akhir.");
+    return { ok: r.verdict === "YA", detail: (r.verdict ? `VONIS ${r.verdict}: ` : "tanpa vonis: ") + r.text.replace(/\s+/g, " ").slice(0, 90) };
   } catch (e) { return { ok: false, detail: "judge error: " + e.message }; }
 }
 

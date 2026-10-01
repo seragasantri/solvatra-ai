@@ -124,6 +124,25 @@ TRAGA_CUSTOM_MODEL=ocg/deepseek-v4-flash-vision-exp
 EOF
 ```
 
+## Keahlian kerja: playbook & tool
+
+Agent bekerja dengan alur **pahami → cari akar masalah → kerjakan → verifikasi → laporkan jujur**, dan memakai playbook praktis per bidang (tool `playbook`):
+`cara-kerja`, `debugging`, `frontend`, `backend`, `devops` (deploy/nginx/systemd/docker), `github`, `code-review`, `security-review` — isinya di `knowledge/playbooks/`.
+
+| Tool | Fungsi |
+|---|---|
+| `run_command` | Jalankan perintah shell (exit code + output, timeout, sudo dengan password sekali per sesi) |
+| `write_file` / `edit_file` / `read_file` | Tulis (bertahap untuk file besar), ubah presisi, baca file |
+| `github` | status, diff, log, branch, commit (menolak file secret), push, PR, cek CI (`git` + `gh`) |
+| `code_review` | Diff + isi file baru + perintah verifikasi proyek + checklist review |
+| `review_security` | Secret bocor, SQL/command injection, XSS, eval, deserialisasi, TLS/CORS/APP_DEBUG, `.env` ter-commit, audit dependency (npm/composer/pip-audit) |
+
+Ukur ketepatan agent dengan model yang dipakai (jalankan di dalam sebuah repo git):
+
+```bash
+npm run eval:skills
+```
+
 ## Login akun Solvatra (wajib)
 
 Agent hanya bisa dipakai setelah login ke akun [solvatra.web.id](https://solvatra.web.id):

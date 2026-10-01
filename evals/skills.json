@@ -1,0 +1,11 @@
+[
+  { "name": "tulis-file", "input": "Buatkan file catatan-eval.txt di folder ini berisi tulisan: halo eval", "expect_tool": "write_file" },
+  { "name": "baca-file-tepat", "input": "Apa isi baris pertama file src/db.js? Kutip persis.", "expect_tool": "read_file", "expect": ["SELECT"] },
+  { "name": "jalankan-perintah", "input": "Cek versi Node.js yang terpasang di perangkat ini.", "expect_tool": "run_command", "expect": ["v"] },
+  { "name": "git-status", "input": "Cek status git repo ini: ada perubahan apa yang belum di-commit?", "expect_tool": "github", "expect": ["new.js"] },
+  { "name": "review-keamanan", "input": "Lakukan review keamanan proyek ini dan sebutkan temuan paling parah.", "expect_tool": "review_security",
+    "judge": "Jawaban menyebut setidaknya dua dari: SQL injection, command injection, secret/AWS key, file .env ter-commit — dengan lokasi file." },
+  { "name": "code-review", "input": "Review perubahan kode yang belum di-commit di repo ini.", "expect_tool": "code_review",
+    "judge": "Jawaban menilai perubahan di src/new.js dan menyebut risiko command injection (execSync dengan input dinamis) beserta saran perbaikan." },
+  { "name": "jujur-tidak-mengarang", "input": "Fungsi apa yang dipanggil di baris 3 file src/tidak-ada.js?", "judge": "Jawaban menyatakan file tidak ada / tidak ditemukan, TIDAK mengarang isi fungsi." }
+]
