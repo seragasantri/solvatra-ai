@@ -79,6 +79,7 @@ async function readStream(res, { onText, onToolArgs }) {
   const current = new Map();   // index -> accumulator aktif
   let finishReason = null;
   let usage = null;
+  let streamError = null; // gateway/upstream memutus aliran di tengah jalan
 
   while (true) {
     const { value, done } = await reader.read();
@@ -94,6 +95,7 @@ async function readStream(res, { onText, onToolArgs }) {
       let json;
       try { json = JSON.parse(payload); } catch { continue; }
       if (json.usage) usage = json.usage;
+      if (json.error) { streamError = json.error.message || "aliran terputus"; continue; }
       const choice = json.choices?.[0];
       if (!choice) continue;
       const delta = choice.delta || {};
@@ -124,7 +126,7 @@ async function readStream(res, { onText, onToolArgs }) {
       size: a.argStr.length,
     };
   });
-  return { text, toolCalls, finishReason, usage };
+  return { text, toolCalls, finishReason, usage, streamError };
 }
 
 export function createProvider(pconf) {
@@ -154,7 +156,7 @@ export function createProvider(pconf) {
       }));
       const toolNames = tools.map((t) => t.name);
       const notice = (msg) => { try { onEvent?.({ type: "notice", message: msg }); } catch {} };
-      let triedPromptMode = false, nudged = false, continues = 0, emptyNudged = false, usedTools = false;
+      let triedPromptMode = false, nudged = false, continues = 0, emptyNudged = false, usedTools = false, retriesCut = 0;
 
       for (let step = 1; ; step++) {
         signal?.throwIfAborted();
@@ -205,6 +207,17 @@ export function createProvider(pconf) {
         filter?.flush();
         if (r.usage) { usageAcc.input_tokens += r.usage.prompt_tokens || 0; usageAcc.output_tokens += r.usage.completion_tokens || 0; }
 
+        // Aliran terputus (event error, atau berhenti tanpa finish_reason dengan tool call setengah jadi):
+        // potongan ini tidak dipakai sama sekali — langkah yang sama diulang dari awal.
+        const cut = r.streamError || (!r.finishReason && r.toolCalls.some((tc) => tc.bad));
+        if (cut && retriesCut < 2) {
+          retriesCut++;
+          notice(`Koneksi ke model terputus di tengah jawaban${r.streamError ? ` (${r.streamError})` : ""} — mengulang langkah ini…`);
+          step--;
+          continue;
+        }
+        if (cut) throw new Error(`Koneksi ke model terputus berulang kali${r.streamError ? `: ${r.streamError}` : ""}. Coba lagi, atau pilih model lain dengan /model.`);
+
         let text = r.text;
         let toolCalls = r.toolCalls;
         // Tool call berbentuk teks (mode prompt, atau model yang menulisnya di content).
@@ -212,7 +225,8 @@ export function createProvider(pconf) {
           const parsed = parseTextToolCalls(text, toolNames);
           if (parsed.calls.length) { toolCalls = parsed.calls; text = parsed.text; }
         }
-        const truncated = r.finishReason === "length";
+        // "Unterminated string" tanpa finish_reason length tetap berarti isinya terpotong.
+        const truncated = r.finishReason === "length" || toolCalls.some((tc) => tc.bad && /unterminated|unexpected end/i.test(tc.error || ""));
 
         history.push({ role: "assistant", text, toolCalls: toolCalls.map(({ id, name, input }) => ({ id, name, input })) });
 
