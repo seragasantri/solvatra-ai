@@ -52,6 +52,10 @@ export function parseTextToolCalls(text, toolNames) {
   };
   let out = String(text || "").replace(TAG_RE, (m, body) => (take(body) ? "" : m));
   if (!calls.length) out = out.replace(FENCE_RE, (m, body) => (take(body) ? "" : m));
+  if (!calls.length) {
+    const bare = parseBareToolCalls(out, toolNames);
+    if (bare.calls.length) return bare;
+  }
   return { calls, text: out.trim() };
 }
 
@@ -155,4 +159,71 @@ export function parseToolArgs(raw) {
     } catch (e) { if (t === s) error = e.message; }
   }
   return { ok: false, error };
+}
+
+/**
+ * Pulihkan tool call native yang bentuknya salah, yang sering muncul dari parser upstream:
+ * - nama berisi seluruh JSON: name = '{"name":"edit_file","arguments":{…}}'
+ * - nama berprefiks: "functions.write_file", "write_file<|tool▁sep|>"
+ * - argumen membungkus ulang: {"name":"write_file","arguments":{…}}
+ * Mengembalikan call yang sudah dinormalkan (atau apa adanya bila tak bisa dipulihkan).
+ */
+export function normalizeToolCall(tc, toolNames) {
+  const names = toolNames instanceof Set ? toolNames : new Set(toolNames);
+  let { name, input } = tc;
+  if (!names.has(name)) {
+    const raw = String(name || "").trim();
+    if (raw.startsWith("{")) {
+      const j = parseToolArgs(raw);
+      const nm = j.ok && (j.value.name || j.value.function?.name || j.value.tool);
+      if (nm && names.has(nm)) {
+        let args = j.value.arguments ?? j.value.parameters ?? j.value.input ?? j.value.function?.arguments ?? {};
+        if (typeof args === "string") { const a = parseToolArgs(args); args = a.ok ? a.value : {}; }
+        return { ...tc, name: nm, input: args, bad: false };
+      }
+    }
+    const hit = [...names].filter((n) => raw.includes(n)).sort((a, b) => b.length - a.length)[0];
+    if (hit) name = hit;
+  }
+  if (input && typeof input === "object" && input.name === name && input.arguments && typeof input.arguments === "object") {
+    input = input.arguments;
+  }
+  return { ...tc, name, input };
+}
+
+/** Objek JSON seimbang yang dimulai di posisi `start` (menghormati string). */
+function balancedObject(text, start) {
+  let depth = 0, inStr = false, esc = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inStr) { if (esc) esc = false; else if (ch === "\\") esc = true; else if (ch === '"') inStr = false; continue; }
+    if (ch === '"') inStr = true;
+    else if (ch === "{") depth++;
+    else if (ch === "}") { depth--; if (depth === 0) return text.slice(start, i + 1); }
+  }
+  return null;
+}
+
+/** JSON polos {"name":"<tool>","arguments":{…}} di tengah teks (tanpa tag/pagar). */
+export function parseBareToolCalls(text, toolNames) {
+  const names = new Set(toolNames);
+  const calls = [];
+  let out = String(text || "");
+  const re = /\{\s*"(?:name|tool)"\s*:/g;
+  let m;
+  const spans = [];
+  while ((m = re.exec(out))) {
+    const obj = balancedObject(out, m.index);
+    if (!obj) continue;
+    const j = parseToolArgs(obj);
+    const nm = j.ok && (j.value.name || j.value.tool);
+    if (!nm || !names.has(nm)) continue;
+    let args = j.value.arguments ?? j.value.parameters ?? j.value.input ?? {};
+    if (typeof args === "string") { const a = parseToolArgs(args); args = a.ok ? a.value : {}; }
+    calls.push({ id: `call_${Math.random().toString(36).slice(2, 10)}`, name: nm, input: args });
+    spans.push([m.index, m.index + obj.length]);
+    re.lastIndex = m.index + obj.length;
+  }
+  for (const [a, b] of spans.reverse()) out = out.slice(0, a) + out.slice(b);
+  return { calls, text: out.trim() };
 }

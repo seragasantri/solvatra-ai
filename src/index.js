@@ -466,7 +466,14 @@ async function main() {
     console.log();
     const spin = makeSpinner();
     activeSpin = spin;
-    spin.start("berpikir…");
+    // Spinner menghapus baris tempat ia berjalan. Kalau model baru saja menulis teks
+    // tanpa baris baru, pindah baris dulu — dulu teks terlihat "terpotong" karena terhapus.
+    let midLine = false;
+    const startSpin = (label) => {
+      if (midLine) { process.stdout.write("\n  "); midLine = false; }
+      spin.start(label);
+    };
+    startSpin("berpikir…");
     let headerShown = false;
     const showHeader = () => {
       if (headerShown) return;
@@ -479,13 +486,13 @@ async function main() {
     try {
       await agent.chat(finalInput, {
         signal,
-        onTool: (name, input) => { const ti = toolInfo(name, input); spin.stop(); showHeader(); process.stdout.write("\n" + C.cyan("  ⚙ ") + C.dim(ti.display) + "\n"); spin.start(ti.label); },
+        onTool: (name, input) => { const ti = toolInfo(name, input); spin.stop(); showHeader(); process.stdout.write("\n" + C.cyan("  ⚙ ") + C.dim(ti.display) + "\n"); midLine = false; startSpin(ti.label); },
         // Progres: model menulis argumen tool, hasil tiap tool, dan pemberitahuan pemulihan.
         onEvent: (ev) => {
           if (ev.type === "tool_args") {
             if (!isTTY) return;
             const l = `menyiapkan ${ev.name || "tool"}… ${(ev.size / 1024).toFixed(1)} KB`;
-            if (spin.running) spin.set(l); else { showHeader(); spin.start(l); }
+            if (spin.running) spin.set(l); else { showHeader(); startSpin(l); }
           } else if (ev.type === "tool_end") {
             spin.stop(); showHeader();
             // Path absolut di folder kerja ditampilkan relatif supaya ringkas.
@@ -493,16 +500,22 @@ async function main() {
             const failed = /^(error|gagal|dibatalkan|mode manual|file .* (sudah ada|tidak ada|belum ada)|butuh )/i.test(first.trim());
             const secs = (ev.ms / 1000).toFixed(1) + "s";
             process.stdout.write((failed ? C.yellow("  ✗ ") : C.green("  ✓ ")) + C.dim(`${secs}  ${first.slice(0, 110)}`) + "\n  ");
-            spin.start("berpikir…");
+            startSpin("berpikir…");
           } else if (ev.type === "notice") {
             spin.stop(); showHeader();
-            process.stdout.write("\n" + C.yellow("  ↻ " + ev.message) + "\n  ");
-            spin.start("berpikir…");
+            process.stdout.write("\n" + C.yellow("  ↻ " + ev.message) + "\n  "); midLine = false;
+            startSpin("berpikir…");
           } else if (ev.type === "model_start" && ev.step > 1) {
             spin.set(`berpikir… (langkah ${ev.step})`);
           }
         },
-        onDelta: (d) => { spin.stop(); showHeader(); process.stdout.write(d.replace(/\n/g, "\n  ")); },
+        onDelta: (d) => {
+          // spinner yang berhenti meninggalkan kursor di kolom 0 -> beri indentasi lagi
+          const fromSpinner = spin.running && headerShown;
+          spin.stop(); showHeader();
+          process.stdout.write((fromSpinner ? "  " : "") + d.replace(/\n/g, "\n  "));
+          if (d) midLine = !d.endsWith("\n");
+        },
         images,
       });
       spin.stop();

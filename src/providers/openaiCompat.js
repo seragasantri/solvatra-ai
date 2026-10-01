@@ -13,7 +13,7 @@
 import { config } from "../config.js";
 import {
   MAX_STEPS, promptToolsSystem, parseTextToolCalls, makeTagFilter, badArgsMessage,
-  looksLikeUnfinishedAction, NUDGE_TEXT, CONTINUE_TEXT, EMPTY_TEXT, parseToolArgs,
+  looksLikeUnfinishedAction, NUDGE_TEXT, CONTINUE_TEXT, EMPTY_TEXT, parseToolArgs, normalizeToolCall,
 } from "./toolkit.js";
 import fs from "node:fs";
 import path from "node:path";
@@ -36,6 +36,9 @@ function toOpenAI(system, turns, promptTools) {
         msgs.push({ role: "user", content: t.text });
       }
     } else if (t.role === "assistant") {
+      // Jawaban kosong (mis. habis untuk "berpikir") tidak dikirim balik: banyak upstream
+      // menolak pesan asisten tanpa isi & tanpa tool call ("content must not be empty").
+      if (!(t.text || "").trim() && !t.toolCalls?.length) continue;
       if (promptTools) {
         const calls = (t.toolCalls || []).map((tc) => `<tool_call>${JSON.stringify({ name: tc.name, arguments: tc.input ?? {} })}</tool_call>`);
         msgs.push({ role: "assistant", content: [t.text || "", ...calls].filter(Boolean).join("\n") || "(memanggil tool)" });
@@ -156,7 +159,8 @@ export function createProvider(pconf) {
       }));
       const toolNames = tools.map((t) => t.name);
       const notice = (msg) => { try { onEvent?.({ type: "notice", message: msg }); } catch {} };
-      let triedPromptMode = false, nudged = false, continues = 0, emptyNudged = false, usedTools = false, retriesCut = 0;
+      let triedPromptMode = false, nudged = false, continues = 0, emptyNudged = false, usedTools = false, retriesCut = 0, retriesHttp = 0;
+      let maxTokens = config.maxTokens;
 
       for (let step = 1; ; step++) {
         signal?.throwIfAborted();
@@ -173,7 +177,7 @@ export function createProvider(pconf) {
           signal,
           body: JSON.stringify({
             model: pconf.model,
-            max_tokens: config.maxTokens,
+            max_tokens: maxTokens,
             stream: true,
             ...(config.temperature != null && !Number.isNaN(config.temperature) ? { temperature: config.temperature } : {}),
             ...(config.topP != null && !Number.isNaN(config.topP) ? { top_p: config.topP } : {}),
@@ -187,15 +191,27 @@ export function createProvider(pconf) {
         });
         if (!res.ok) {
           const body = await res.text().catch(() => "");
-          // Upstream tidak menerima function calling native -> coba sekali lagi dengan tool di prompt.
-          if (!promptTools && apiTools.length && !triedPromptMode && [400, 404, 422, 500, 502, 503].includes(res.status)) {
+          // Beralih ke mode prompt-tools HANYA bila upstream jelas menolak function calling.
+          // (Dulu semua 4xx/5xx dianggap begitu — satu error biasa membuat sisa sesi rusak.)
+          const rejectsTools = /tool|function[_ ]?call/i.test(body);
+          if (!promptTools && apiTools.length && !triedPromptMode && [400, 404, 422].includes(res.status) && rejectsTools) {
             triedPromptMode = true;
             state.promptTools = true;
             notice("Model ini tidak menerima tool native — beralih ke mode tool kompatibel.");
             step--;
             continue;
           }
-          throw new Error(`HTTP ${res.status} dari ${url}: ${body.slice(0, 300)}`);
+          // Gangguan sesaat di server: ulangi langkah yang sama (maks 2x per giliran).
+          if ([429, 500, 502, 503, 504].includes(res.status) && retriesHttp < 2) {
+            retriesHttp++;
+            notice(`Server model sibuk/bermasalah (HTTP ${res.status}) — mencoba lagi…`);
+            await new Promise((r) => setTimeout(r, 1500 * retriesHttp));
+            step--;
+            continue;
+          }
+          let msg = body.slice(0, 300);
+          try { msg = JSON.parse(body).error?.message || msg; } catch {}
+          throw new Error(`HTTP ${res.status} dari ${url}: ${msg}`);
         }
 
         onEvent?.({ type: "model_start", step });
@@ -219,7 +235,13 @@ export function createProvider(pconf) {
         if (cut) throw new Error(`Koneksi ke model terputus berulang kali${r.streamError ? `: ${r.streamError}` : ""}. Coba lagi, atau pilih model lain dengan /model.`);
 
         let text = r.text;
-        let toolCalls = r.toolCalls;
+        // Nama/argumen yang dibentuk salah oleh parser upstream dipulihkan dulu.
+        let toolCalls = r.toolCalls.map((tc) => (tc.bad ? tc : normalizeToolCall(tc, toolNames)));
+        toolCalls = toolCalls.map((tc) => {
+          if (!tc.bad || !String(tc.name).trim().startsWith("{")) return tc;
+          const fixed = normalizeToolCall({ ...tc, input: {} }, toolNames);
+          return toolNames.includes(fixed.name) ? { ...fixed, bad: false } : tc;
+        });
         // Tool call berbentuk teks (mode prompt, atau model yang menulisnya di content).
         if (!toolCalls.length && apiTools.length) {
           const parsed = parseTextToolCalls(text, toolNames);
@@ -257,6 +279,13 @@ export function createProvider(pconf) {
           emptyNudged = true;
           notice("Model berhenti tanpa jawaban — meminta melanjutkan…");
           history.push({ role: "user", text: EMPTY_TEXT, synthetic: true });
+          continue;
+        }
+        if (truncated && !text.trim() && !toolCalls.length && maxTokens < 32000) {
+          maxTokens = Math.min(32000, maxTokens * 2);
+          history.pop(); // buang jawaban kosong
+          notice(`Model kehabisan batas token sebelum menjawab — mengulang dengan batas ${maxTokens}…`);
+          step--;
           continue;
         }
         if (truncated && continues < 3) {
