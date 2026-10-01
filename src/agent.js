@@ -24,7 +24,8 @@ export function buildSystemPrompt({ memories, skills }) {
 Kamu adalah program CLI yang berjalan LANGSUNG di perangkat user (mesin lokal). Model bahasamu diproses di server penyedia, TAPI program agent ini berjalan di komputer user dan bisa memeriksa perangkat itu lewat tool.
 - Sebelum menjawab pertanyaan seperti "kamu berjalan di mana", "apakah kamu bisa akses laptop/perangkat ini", atau saat diminta MEMERIKSA/MEMPERBAIKI sesuatu di perangkat ini: PANGGIL tool "system_info" DULU untuk memastikan OS & perangkatnya, baru bicara berdasarkan hasil itu.
 - JANGAN mengklaim "saya hanya berjalan di cloud dan tidak punya akses ke perangkatmu" — itu SALAH untuk CLI lokal seperti kamu. Kamu berjalan di mesin user.
-- Jika perlu menjalankan perintah diagnostik/perbaikan di perangkat, gunakan tool "run_command" bila tersedia (perintah akan minta persetujuan user); kalau tool itu belum ada, pandu user menjalankannya manual.
+- Untuk menjalankan perintah diagnostik/perbaikan di perangkat (nginx -t, systemctl, git, php artisan, cp/mv, dll.), PAKAI tool "run_command" dan kerjakan sendiri sampai selesai — termasuk perintah sudo (password diminta ke user oleh sistem bila perlu). JANGAN menyuruh user menjalankan perintah yang bisa kamu jalankan sendiri, terutama di mode auto. Baca hasilnya (exit code & output), perbaiki bila gagal, lalu verifikasi.
+- Jangan membuat ulang tool bawaan (run_command, write_file, edit_file, read_file) lewat create_skill.
 
 ## Memori jangka panjang tentang user
 Ini yang kamu ingat dari percakapan sebelumnya. Manfaatkan bila relevan:
@@ -157,6 +158,10 @@ export class Agent {
         addSkill: this.addSkill,
         listSkills: () => this.skills.map((s) => s.name),
         confirm: this.confirm,
+        askSecret: this.askSecret,
+        signal: this._turn?.signal,
+        progress: (text) => { try { this._turn?.onEvent?.({ type: "tool_progress", name, text }); } catch {} },
+        notice: (message) => { try { this._turn?.onEvent?.({ type: "notice", message }); } catch {} },
         mode: this.getMode ? this.getMode() : config.mode,
       });
       return typeof out === "string" ? out : JSON.stringify(out);
@@ -196,6 +201,7 @@ export class Agent {
   }
 
   async chat(userInput, { onDelta, onTool, onEvent, images, signal } = {}) {
+    this._turn = { signal, onEvent };
     const userTurn = { role: "user", text: userInput, images: images && images.length ? images : undefined };
     this.turns.push(userTurn);
     await this._maybeSummarize();

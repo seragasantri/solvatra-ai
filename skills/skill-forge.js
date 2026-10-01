@@ -34,6 +34,9 @@ export default {
   },
 
   async run(input, ctx) {
+    if (["run_command", "write_file", "edit_file", "read_file", "list_dir", "search_code"].includes(String(input.name))) {
+      return `Skill "${input.name}" sudah tersedia bawaan — pakai langsung, jangan dibuat ulang.`;
+    }
     const name = String(input.name || "").trim();
     if (!NAME_RE.test(name)) {
       return `Ditolak: nama "${name}" tidak valid. Pakai huruf kecil/angka/garis-bawah, 2–49 karakter.`;

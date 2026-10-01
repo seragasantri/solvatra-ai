@@ -255,6 +255,21 @@ async function main() {
   // supaya pertanyaannya tidak tertimpa animasi (dulu terlihat "menulis file… 1930s").
   let activeSpin = null;
 
+  // Input rahasia (password sudo): ketikan tidak ditampilkan. Spinner dihentikan selama menunggu.
+  agent.askSecret = (label) => new Promise((resolve) => {
+    const sp = activeSpin; sp?.stop();
+    if (isTTY) process.stdout.write("\x07");
+    const orig = rl._writeToOutput;
+    const q = "\n" + C.yellow("  🔑 " + label) + "\n  " + C.bold("Password: ");
+    let muted = false;
+    rl._writeToOutput = (str) => { if (!muted) orig.call(rl, str); };
+    const signal = busy?.signal;
+    const done = (v) => { rl._writeToOutput = orig; process.stdout.write("\n"); if (v) sp?.start("menjalankan…"); resolve(v); };
+    signal?.addEventListener("abort", () => done(null), { once: true });
+    rl.question(q, signal ? { signal } : {}, (a) => done(a));
+    muted = true;
+  });
+
   agent.confirm = async (msg) => {
     if (mode === "auto") { process.stdout.write(C.dim(`  ✓ auto-accept: ${String(msg).split("\n")[0]}\n  `)); return Promise.resolve(true); }
     if (mode === "manual") return Promise.resolve(false);
@@ -506,10 +521,14 @@ async function main() {
             spin.stop(); showHeader();
             // Path absolut di folder kerja ditampilkan relatif supaya ringkas.
             const first = (String(ev.output || "").split("\n").find((l) => l.trim()) || "(tanpa keluaran)").split(process.cwd() + path.sep).join("");
-            const failed = /^(error|gagal|dibatalkan|mode manual|file .* (sudah ada|tidak ada|belum ada)|butuh )/i.test(first.trim());
+            const failed = /^(error|gagal|dibatalkan|dihentikan|mode manual|file .* (sudah ada|tidak ada|belum ada)|butuh )/i.test(first.trim());
             const secs = (ev.ms / 1000).toFixed(1) + "s";
             process.stdout.write((failed ? C.yellow("  ✗ ") : C.green("  ✓ ")) + C.dim(`${secs}  ${first.slice(0, 110)}`) + "\n  ");
             startSpin("berpikir…");
+          } else if (ev.type === "tool_progress") {
+            // baris terakhir output perintah yang sedang berjalan
+            const line = String(ev.text || "").replace(/\s+/g, " ").slice(0, 70);
+            if (spin.running) spin.set(`menjalankan… ${line}`);
           } else if (ev.type === "notice") {
             spin.stop(); showHeader();
             process.stdout.write("\n" + C.yellow("  ↻ " + ev.message) + "\n  "); midLine = false;
