@@ -16,6 +16,51 @@ solvatra-ai
 > Perintah: `solvatra-ai` (alias: `traga-agent`). Butuh Node.js >= 20.
 > Set kredensial di `~/.ai-agent-traga/.env` (lihat bagian "Install global" di bawah).
 
+Atau sekali jalan (pasang + pilih aplikasi):
+```bash
+curl -fsSL https://solvatra.web.id/install.sh | bash            # macOS / Linux
+irm https://solvatra.web.id/install.ps1 | iex                    # Windows PowerShell
+```
+
+## Tiga pilihan: Solvatra AI, Claude Code, atau Codex
+
+```bash
+solvatra-ai install
+```
+
+| Pilihan | Cara masuk | Dijalankan dengan |
+|---|---|---|
+| **Solvatra AI** (agent bawaan) | login lewat browser | `solvatra-ai` |
+| **Claude Code** (aplikasi asli Anthropic) | tempel API key Solvatra `tg_live_…` + pilih model | `claude` atau `solvatra-claude` |
+| **Codex** (aplikasi asli OpenAI) | tempel API key Solvatra `tg_live_…` + pilih model | `codex` atau `solvatra-codex` |
+
+- Claude Code / Codex dipasang dari npm resmi bila belum ada; yang diubah hanya alamat server
+  (`solvatra.web.id`), kunci, dan model.
+- Model: 1 model utama (bawaan), boleh tambah hingga 2 **cadangan** — bila model utama gagal/sibuk
+  sebelum menjawab, gateway otomatis pindah ke cadangan (header `x-solvatra-fallback-models`).
+- Cara jalan: perintah `claude`/`codex` biasa (setelan lama dicadangkan dulu), atau perintah khusus
+  `solvatra-claude`/`solvatra-codex` dengan config terpisah sehingga setelan Anda tidak tersentuh.
+- Kembalikan `claude`/`codex` ke setelan asli: `solvatra-ai reset claude` / `solvatra-ai reset codex`.
+
+## Gateway bot: Telegram & WhatsApp
+
+```bash
+solvatra-ai gateway          # menu: atur Telegram / WhatsApp, model, peran bot, jalankan
+solvatra-ai gateway start    # langsung jalan (pm2 / systemd / tmux)
+```
+
+- **Telegram**: buat bot di @BotFather, tempel tokennya, lalu kirim pesan ke bot dari akun Anda —
+  akun itu jadi **pemilik**. Cakupan: semua orang & grup, hanya chat pribadi, atau hanya pemilik.
+- **WhatsApp**: gratis lewat WhatsApp Web — scan QR (atau kode tautan) dari HP. Cakupan: semua nomor &
+  grup, semua nomor tanpa grup, grup tertentu, nomor tertentu (satu/beberapa), nomor & grup tertentu,
+  atau hanya pemilik. Modul WhatsApp (Baileys) dipasang sekali saat pertama diatur.
+- **Akses**: kontak & grup = chat biasa (tanpa akses perangkat/file). **Pemilik** (nomor bot sendiri lewat
+  chat "Anda", nomor pemilik tambahan, atau akun Telegram pemilik) = agent Solvatra AI penuh; aksi
+  berdampak minta persetujuan dengan membalas "ya".
+- Di grup bot hanya membalas saat di-mention, dibalas, atau pesan diawali `/ai`. `/reset` memulai ulang
+  percakapan.
+- WhatsApp Web adalah klien tidak resmi: hindari kirim massal/spam supaya nomor tidak dibatasi.
+
 ---
 
 

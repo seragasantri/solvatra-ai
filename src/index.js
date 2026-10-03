@@ -7,12 +7,14 @@ import { config, activeProvider, setActiveProvider, setProviderField, refresh } 
 import { Memory } from "./memory.js";
 import { loadSkills } from "./skills.js";
 import { Agent } from "./agent.js";
-import { extractText, isImage, imageMediaType } from "./extract.js";
 import { loadMcpTools } from "./mcp.js";
 import { runSetup, needsSetup, providerReady } from "./setup.js";
 import { login, logout, verify, clearAuth, listModels, listModelHealth, SERVER_URL } from "./auth.js";
 import { select, isSelecting } from "./select.js";
 import { pickModel, bestModel, describe as describeModel } from "./models.js";
+import { attachFile, clipboardFiles, pickFiles, splitPaths, droppedPaths } from "./attachments.js";
+import { APPS, setupApp, launchApp, removeDefault, appStatus } from "./apps.js";
+import { gatewayMenu } from "./gateway/index.js";
 
 // --- Palet warna ANSI (tanpa dependency) ---
 const e = (n) => (s) => `\x1b[${n}m${s}\x1b[0m`;
@@ -162,6 +164,12 @@ async function ensureLogin() {
     console.error(C.yellow(`\n  ⚠  Tidak bisa menghubungi ${SERVER_URL} untuk memeriksa login: ${v.message}\n`));
     return null;
   }
+  if (v.reason === "none" && process.stdin.isTTY && !process.env.TRAGA_SKIP_MENU) {
+    // pertama kali di perangkat ini: tawarkan agent bawaan, Claude Code, atau Codex
+    const app = await chooseApp();
+    if (!app) return null;
+    if (app !== "solvatra") process.exit(await connectApp(app));
+  }
   if (v.reason === "invalid") {
     clearAuth();
     console.log(C.yellow("\n  Login sebelumnya tidak berlaku lagi (key dicabut/kedaluwarsa). Silakan login ulang."));
@@ -192,8 +200,58 @@ async function availableModels() {
   } catch { return []; }
 }
 
-// Subperintah non-REPL: solvatra-ai login | logout | whoami
+// Menu pilihan aplikasi (dipakai saat pertama kali dan oleh `solvatra-ai install`).
+async function chooseApp() {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  console.log("\n  " + C.bold(C.cyan("Solvatra AI")) + C.dim(`  — ${SERVER_URL.replace(/^https?:\/\//, "")}`));
+  const v = await verify();
+  const i = await select(rl, {
+    C,
+    title: "\n  Mau pakai yang mana?",
+    options: [
+      { label: "Solvatra AI", hint: v.ok ? `login sebagai ${v.user.email}` : "agent bawaan · login lewat browser" },
+      { label: "Claude Code", hint: appStatus("claude") || "aplikasi asli Anthropic · cukup tempel API key Solvatra" },
+      { label: "Codex", hint: appStatus("codex") || "aplikasi asli OpenAI · cukup tempel API key Solvatra" },
+    ],
+  });
+  rl.close();
+  return ["solvatra", "claude", "codex"][i] ?? null;
+}
+
+/** Wizard Claude Code/Codex lalu tawarkan langsung menjalankannya. -> kode keluar. */
+async function connectApp(app) {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const ok = await setupApp(rl, C, app);
+  let run = -1;
+  if (ok) run = await select(rl, { C, title: `  Jalankan ${APPS[app].name} sekarang?`, options: ["Ya", "Nanti saja"] });
+  rl.close();
+  if (!ok) return 1;
+  return run === 0 ? launchApp(app, []) : 0;
+}
+
+// Subperintah non-REPL: solvatra-ai login | logout | whoami | install | claude | codex | reset
 async function subcommand(cmd) {
+  if (cmd === "install") {
+    const app = await chooseApp();
+    if (!app) return 1;
+    if (app !== "solvatra") return connectApp(app);
+    const v = await verify();
+    if (!v.ok) {
+      try { await login(C); await afterLogin(); } catch (e) { console.error(C.yellow(`\n  ⚠  ${e.message}\n`)); return 1; }
+    }
+    console.log(C.green("\n  ✓ Solvatra AI siap.") + C.dim(" Jalankan: ") + C.bold("solvatra-ai") + "\n");
+    return 0;
+  }
+  if (cmd === "claude" || cmd === "codex") return launchApp(cmd, process.argv.slice(3));
+  if (cmd === "gateway") return gatewayMenu(C, process.argv.slice(3));
+  if (cmd === "reset") {
+    const app = process.argv[3];
+    if (!APPS[app]) { console.log(C.dim("\n  Pakai: solvatra-ai reset claude | codex\n")); return 1; }
+    console.log(removeDefault(app)
+      ? C.green(`\n  ✓ Perintah \`${APPS[app].bin}\` kembali ke setelan aslinya (Solvatra dilepas). \`solvatra-${app}\` tetap bisa dipakai.\n`)
+      : C.dim(`\n  \`${APPS[app].bin}\` memang tidak sedang diarahkan ke Solvatra.\n`));
+    return 0;
+  }
   if (cmd === "login") {
     try { const a = await login(C); await afterLogin(); console.log(C.green(`\n  ✓ Login berhasil sebagai ${a.user.email}\n`)); return 0; }
     catch (e) { console.error(C.yellow(`\n  ⚠  ${e.message}\n`)); return 1; }
@@ -296,7 +354,25 @@ async function main() {
   };
 
   banner(p, agent, skills, memory, mode, mcpCount);
-  const ask = () => rl.question("\n  " + modeTag(mode) + C.dim("  /mode untuk ganti") + "\n  " + C.green("❯") + " ", handle);
+  const pendingTag = () => {
+    const n = pending.images.length + pending.notes.length;
+    return n ? "  " + C.cyan(`📎 ${n} lampiran`) + C.dim(" (/attachments)") : "";
+  };
+  const ask = () => rl.question("\n  " + modeTag(mode) + C.dim("  /mode untuk ganti") + pendingTag() + C.dim("  · Ctrl+V tempel gambar/file") + "\n  " + C.green("❯") + " ", handle);
+
+  // Tambah satu lampiran ke antrean pesan berikutnya + tampilkan ringkasnya.
+  async function addAttachment(file, label) {
+    try {
+      const a = await attachFile(file, label);
+      if (a.kind === "image") pending.images.push({ media_type: a.media_type, data: a.data, name: a.name });
+      else pending.notes.push({ name: a.name, text: a.text });
+      process.stdout.write(C.dim(`  📎 ${a.name} — ${a.summary}\n`));
+      return true;
+    } catch (e) {
+      process.stdout.write(C.yellow(`  ⚠  ${e.message}\n`));
+      return false;
+    }
+  }
 
   function cmdHelp() {
     console.log("\n  " + C.bold("Perintah"));
@@ -310,12 +386,17 @@ async function main() {
     row("/memory", "lihat semua memori tersimpan");
     row("/forget <id>", "hapus satu memori");
     row("/skills", "daftar skill aktif");
-    row("/attach <path>", "lampirkan file/gambar ke pesan berikutnya");
+    row("/attach [path…]", "lampirkan file (tanpa path = jendela pilih file, bisa banyak)");
+    row("/attachments", "lihat lampiran yang menunggu; /detach untuk mengosongkan");
     row("/trace", "lihat metrik/observability giliran terakhir");
     row("/cost", "token yang dipakai sesi ini");
     row("/clear", "bersihkan layar");
     row("/exit", "keluar (sesi disimpan)");
+    console.log("\n  " + C.bold("Di luar chat"));
+    row("solvatra-ai install", "pilih: Solvatra AI, Claude Code, atau Codex (lewat Solvatra)");
+    row("solvatra-ai gateway", "bot Telegram / WhatsApp (pemilik = agent penuh)");
     console.log("\n  " + C.dim("Esc / Ctrl+C saat AI menjawab = batalkan & edit ulang prompt · Ctrl+C 2x = keluar"));
+    console.log("  " + C.dim("Ctrl+V = tempel gambar/file dari clipboard · seret file ke terminal = lampiran otomatis"));
     console.log();
   }
 
@@ -459,28 +540,42 @@ async function main() {
       } catch (e) { console.log(C.yellow(`\n  gagal baca trace: ${e.message}\n`)); }
       return ask();
     }
-    if (input.startsWith("/attach ")) {
-      const fp = input.slice(8).trim().replace(/^['"]|['"]$/g, "");
-      if (!fs.existsSync(fp)) { console.log(C.yellow(`\n  file tidak ditemukan: ${fp}\n`)); return ask(); }
-      try {
-        if (isImage(fp)) {
-          const buf = fs.readFileSync(fp);
-          if (buf.length > 5 * 1024 * 1024) { console.log(C.yellow("\n  gambar > 5MB, terlalu besar.\n")); return ask(); }
-          pending.images.push({ media_type: imageMediaType(fp), data: buf.toString("base64") });
-          console.log(C.dim(`\n  📎 gambar dilampirkan: ${fp} (dikirim saat pesan berikutnya)\n`));
-        } else {
-          const r = await extractText(fp);
-          if (r.error && !r.text) { console.log(C.yellow(`\n  ${r.error}\n`)); return ask(); }
-          pending.notes.push({ name: fp, text: (r.text || "").slice(0, 40000) });
-          console.log(C.dim(`\n  📎 dokumen dilampirkan: ${fp} (${r.kind}, ${(r.text||"").length} char)\n`));
-        }
-      } catch (e) { console.log(C.yellow(`\n  gagal melampirkan: ${e.message}\n`)); }
+    if (input === "/attach" || input.startsWith("/attach ")) {
+      let files = splitPaths(input.slice(7).trim());
+      console.log();
+      if (!files.length) {
+        process.stdout.write(C.dim("  membuka jendela pilih file…\n"));
+        files = pickFiles();
+        if (files === null) { console.log(C.yellow("  Pemilih file grafis tidak tersedia. Pakai: /attach <path> [path lain…], atau seret file ke terminal.\n")); return ask(); }
+        if (!files.length) { console.log(C.dim("  (dibatalkan)\n")); return ask(); }
+      }
+      for (const f of files) await addAttachment(f);
+      console.log(C.dim("  Dikirim bersama pesan berikutnya.\n"));
+      return ask();
+    }
+    if (input === "/attachments") {
+      const all = [...pending.images.map((i) => `🖼  ${i.name || "gambar"}`), ...pending.notes.map((n) => `📄 ${n.name}`)];
+      console.log(all.length ? "\n" + all.map((x) => "  " + x).join("\n") + C.dim("\n  /detach untuk mengosongkan\n") : C.dim("\n  (belum ada lampiran)\n"));
+      return ask();
+    }
+    if (input === "/detach") {
+      pending.images = []; pending.notes = [];
+      console.log(C.dim("\n  Lampiran dikosongkan.\n"));
       return ask();
     }
     if (!input) return ask();
 
+    // File yang diseret ke terminal (path-nya tertempel) → lampiran otomatis.
+    let text = input;
+    const dropped = droppedPaths(input);
+    if (dropped.paths.length) {
+      console.log();
+      for (const p of dropped.paths) await addAttachment(p);
+      text = dropped.text || "Lihat lampiran.";
+    }
+
     // --- Giliran chat ---
-    let finalInput = input;
+    let finalInput = text;
     const images = pending.images.slice();
     const notes = pending.notes.slice();
     if (pending.notes.length) {
@@ -618,6 +713,17 @@ async function main() {
   });
   // Esc saat AI sedang menjawab = batalkan (seperti Claude Code).
   process.stdin.on("keypress", (_s, key) => {
+    if (key?.ctrl && key.name === "v" && !busy && !isSelecting()) {
+      const clip = clipboardFiles();
+      process.stdout.write("\r\x1b[2K");
+      if (!clip.files.length) process.stdout.write(C.dim(`  ${clip.reason}\n`));
+      (async () => {
+        for (const f of clip.files) await addAttachment(f, clip.temp ? `clipboard-${new Date().toLocaleTimeString("id-ID").replace(/\D/g, "")}.png` : undefined);
+        rl.setPrompt("\n  " + modeTag(mode) + C.dim("  /mode untuk ganti") + pendingTag() + C.dim("  · Ctrl+V tempel gambar/file") + "\n  " + C.green("❯") + " ");
+        rl.prompt(true);
+      })();
+      return;
+    }
     // Esc di dalam menu pilihan ditangani menunya sendiri (= tolak/batal pilihan itu saja).
     if (busy && key?.name === "escape" && !isSelecting()) busy.abort();
   });
@@ -626,5 +732,5 @@ async function main() {
 }
 
 const sub = process.argv[2];
-if (["login", "logout", "whoami"].includes(sub)) subcommand(sub).then((code) => process.exit(code ?? 0));
+if (["login", "logout", "whoami", "install", "claude", "codex", "reset", "gateway"].includes(sub)) subcommand(sub).then((code) => process.exit(code ?? 0));
 else main();

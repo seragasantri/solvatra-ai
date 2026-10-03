@@ -1,11 +1,13 @@
 {
   "name": "solvatra-ai",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "AI agent CLI ringan bergaya Hermes: chat + memory persisten + skill system pluggable (agent bisa bikin skill sendiri) + generator frontend berbasis template. Multi-provider: Claude/OpenAI(Codex)/custom router.",
   "type": "module",
   "bin": {
     "solvatra-ai": "src/index.js",
-    "traga-agent": "src/index.js"
+    "traga-agent": "src/index.js",
+    "solvatra-claude": "src/bin/solvatra-claude.js",
+    "solvatra-codex": "src/bin/solvatra-codex.js"
   },
   "files": [
     "src/",
@@ -61,6 +63,6 @@
     "jszip": "^3.10.2",
     "mammoth": "^1.13.0",
     "pdf-parse": "^2.4.5",
-    "xlsx": "^0.18.5"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   }
 }

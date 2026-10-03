@@ -99,3 +99,76 @@ export function select(rl, o) {
     render();
   });
 }
+
+/**
+ * Pilih banyak: ↑/↓ pindah, Spasi centang/lepas, a = semua/tak satu pun, Enter selesai, Esc batal.
+ * @returns {Promise<number[]|null>} indeks yang dicentang, atau null bila dibatalkan
+ */
+export function multiSelect(rl, o) {
+  const C = o.C || {};
+  const dim = C.dim || ((s) => s), cyan = C.cyan || ((s) => s), green = C.green || ((s) => s);
+  const opts = o.options.map((x) => (typeof x === "string" ? { label: x } : x));
+  const out = process.stdout;
+  const picked = new Set(o.initial || []);
+
+  if (!process.stdin.isTTY || !out.isTTY) {
+    return new Promise((res) => {
+      if (o.title) out.write(o.title + "\n");
+      opts.forEach((x, i) => out.write(`  ${i + 1}. ${x.label}\n`));
+      rl.question("  nomor dipisah koma: ", (a) => {
+        const nums = String(a).split(/[,\s]+/).map(Number).filter((n) => n >= 1 && n <= opts.length);
+        res(nums.length ? [...new Set(nums.map((n) => n - 1))] : null);
+      });
+    });
+  }
+
+  return new Promise((resolve) => {
+    let idx = 0, drawn = 0, closed = false;
+    const page = Math.min(o.pageSize ?? 12, opts.length);
+    let top = 0;
+    const origWrite = rl._writeToOutput;
+    rl._writeToOutput = () => {};
+    const render = () => {
+      if (idx < top) top = idx;
+      if (idx >= top + page) top = idx - page + 1;
+      const lines = [];
+      if (o.title) lines.push(o.title);
+      if (top > 0) lines.push(dim(`    ↑ ${top} lagi`));
+      for (let i = top; i < top + page; i++) {
+        const x = opts[i];
+        const box = picked.has(i) ? green("◉") : dim("○");
+        lines.push((i === idx ? cyan("  ❯ ") : "    ") + box + " " + x.label + (x.hint ? dim("  " + x.hint) : ""));
+      }
+      if (top + page < opts.length) lines.push(dim(`    ↓ ${opts.length - top - page} lagi`));
+      lines.push(dim(`  ↑/↓ pindah · Spasi centang · a semua · Enter selesai (${picked.size} dipilih) · Esc batal`));
+      if (drawn) out.write(`${ESC}${drawn}A\r${ESC}J`);
+      else out.write(`${ESC}?25l`);
+      out.write(lines.join("\n") + "\n");
+      drawn = lines.length;
+    };
+    const finish = (value) => {
+      if (closed) return;
+      closed = true;
+      active--;
+      process.stdin.off("keypress", onKey);
+      if (drawn) out.write(`${ESC}${drawn}A\r${ESC}J`);
+      if (o.title) out.write(o.title + "\n");
+      out.write(value ? cyan("  ❯ ") + (value.map((i) => opts[i].label).join(", ") || dim("(tidak ada)")) + "\n" : dim("  (dibatalkan)\n"));
+      out.write(`${ESC}?25h`);
+      rl._writeToOutput = origWrite;
+      rl.line = ""; rl.cursor = 0;
+      resolve(value);
+    };
+    const onKey = (str, key = {}) => {
+      if (key.name === "up" || key.name === "k") { idx = (idx - 1 + opts.length) % opts.length; render(); }
+      else if (key.name === "down" || key.name === "j" || key.name === "tab") { idx = (idx + 1) % opts.length; render(); }
+      else if (key.name === "space") { picked.has(idx) ? picked.delete(idx) : picked.add(idx); render(); }
+      else if (str === "a") { if (picked.size === opts.length) picked.clear(); else opts.forEach((_, i) => picked.add(i)); render(); }
+      else if (key.name === "return" || key.name === "enter") finish([...picked].sort((x, y) => x - y));
+      else if (key.name === "escape" || (key.ctrl && key.name === "c")) finish(null);
+    };
+    active++;
+    process.stdin.on("keypress", onKey);
+    render();
+  });
+}
