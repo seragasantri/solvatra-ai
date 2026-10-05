@@ -15,6 +15,7 @@ import { pickModel, bestModel, describe as describeModel } from "./models.js";
 import { attachFile, clipboardFiles, pickFiles, splitPaths, droppedPaths } from "./attachments.js";
 import { APPS, setupApp, launchApp, removeDefault, appStatus } from "./apps.js";
 import { gatewayMenu } from "./gateway/index.js";
+import { installPasteGuard, expandPastes } from "./paste.js";
 
 // --- Palet warna ANSI (tanpa dependency) ---
 const e = (n) => (s) => `\x1b[${n}m${s}\x1b[0m`;
@@ -279,6 +280,8 @@ async function main() {
   account = await ensureLogin();
   if (!account) process.exit(1);
 
+  // tempelan multi-baris jadi "[Teks tempel #1 · N baris]" — baru terkirim saat Enter ditekan sendiri
+  installPasteGuard();
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
   // Setup pertama kali: kalau provider belum siap (belum ada kredensial) -> wizard.
@@ -398,11 +401,12 @@ async function main() {
     row("solvatra-ai gateway", "bot Telegram / WhatsApp (pemilik = agent penuh)");
     console.log("\n  " + C.dim("Esc / Ctrl+C saat AI menjawab = batalkan & edit ulang prompt · Ctrl+C 2x = keluar"));
     console.log("  " + C.dim("Ctrl+V = tempel gambar/file dari clipboard · seret file ke terminal = lampiran otomatis"));
+    console.log("  " + C.dim("Tempel teks panjang/multi-baris = jadi [Teks tempel #n · N baris], lanjut ketik, Enter untuk kirim"));
     console.log();
   }
 
   async function handle(line) {
-    const input = (line || "").trim();
+    const input = expandPastes(line || "").trim();
 
     if (input === "/exit" || input === "/quit") {
       persist();
