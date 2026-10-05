@@ -378,6 +378,7 @@ async function main() {
     console.log("\n  " + C.bold("Perintah"));
     const row = (c, d) => console.log("  " + C.cyan(c.padEnd(16)) + C.dim(d));
     row("/mode [ask|auto|manual]", "lihat/ganti mode approval");
+    row("/think [cepat|dalam]", "penalaran model: cepat (bawaan) atau dalam (lebih lambat)");
     row("/setup", "atur ulang provider & model (wizard)");
     row("/provider [nama]", "info / ganti provider (solvatra|claude|codex|custom)");
     row("/whoami", "akun Solvatra yang sedang login");
@@ -432,6 +433,16 @@ async function main() {
       } else {
         console.log(C.yellow(`\n  mode tidak dikenal: ${arg} (pilih ask|auto|manual)\n`));
       }
+      return ask();
+    }
+    if (input === "/think" || input.startsWith("/think ")) {
+      const arg = input.slice(6).trim().toLowerCase();
+      if (arg === "fast" || arg === "cepat") config.reasoning = "fast";
+      else if (arg === "deep" || arg === "dalam") config.reasoning = "deep";
+      else if (arg) { console.log(C.yellow(`\n  pilihan: /think cepat | /think dalam\n`)); return ask(); }
+      console.log("\n  " + C.dim("penalaran: ") + (config.reasoning === "deep"
+        ? C.bold("dalam") + C.dim(" — model berpikir penuh (lebih lambat, untuk soal sulit)")
+        : C.bold("cepat") + C.dim(" — jawaban mulai segera (bawaan)")) + C.dim("   ganti: /think cepat | /think dalam") + "\n");
       return ask();
     }
     if (input === "/clear") { process.stdout.write("\x1b[2J\x1b[H"); banner(p, agent, skills, memory, mode, mcpCount); return ask(); }

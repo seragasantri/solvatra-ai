@@ -161,6 +161,8 @@ export function createProvider(pconf) {
       const notice = (msg) => { try { onEvent?.({ type: "notice", message: msg }); } catch {} };
       let triedPromptMode = false, nudged = false, continues = 0, emptyNudged = false, usedTools = false, retriesCut = 0, retriesHttp = 0;
       let maxTokens = config.maxTokens;
+      // mode cepat: penalaran singkat; "none" dipakai bila model tetap menghabiskan batas untuk berpikir
+      let effort = config.reasoning === "deep" ? null : "low";
 
       for (let step = 1; ; step++) {
         signal?.throwIfAborted();
@@ -178,6 +180,7 @@ export function createProvider(pconf) {
           body: JSON.stringify({
             model: pconf.model,
             max_tokens: maxTokens,
+            ...(effort ? { reasoning_effort: effort } : {}),
             stream: true,
             ...(config.temperature != null && !Number.isNaN(config.temperature) ? { temperature: config.temperature } : {}),
             ...(config.topP != null && !Number.isNaN(config.topP) ? { top_p: config.topP } : {}),
@@ -281,8 +284,17 @@ export function createProvider(pconf) {
           history.push({ role: "user", text: EMPTY_TEXT, synthetic: true });
           continue;
         }
-        if (truncated && !text.trim() && !toolCalls.length && maxTokens < 32000) {
-          maxTokens = Math.min(32000, maxTokens * 2);
+        if (truncated && !text.trim() && !toolCalls.length && effort !== "none") {
+          // batas habis untuk "berpikir" saja: matikan penalaran dulu — jauh lebih cepat
+          // daripada melipatgandakan batas (dulu bisa 8k→16k→32k token = belasan menit)
+          effort = "none";
+          history.pop();
+          notice("Model terlalu lama berpikir tanpa menjawab — mengulang tanpa penalaran panjang…");
+          step--;
+          continue;
+        }
+        if (truncated && !text.trim() && !toolCalls.length && maxTokens < 16000) {
+          maxTokens = Math.min(16000, maxTokens * 2);
           history.pop(); // buang jawaban kosong
           notice(`Model kehabisan batas token sebelum menjawab — mengulang dengan batas ${maxTokens}…`);
           step--;

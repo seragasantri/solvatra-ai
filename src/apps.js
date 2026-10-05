@@ -125,6 +125,7 @@ function codexToml(cfg, { inlineKey }) {
     `# Dibuat oleh ${MARK}: Codex lewat Solvatra AI (${SERVER_URL}). Ubah lewat: solvatra-ai install`,
     `model = ${tomlStr(cfg.models[0])}`,
     `model_provider = "solvatra"`,
+    `model_reasoning_effort = "low"  # cepat; ganti ke "medium"/"high" untuk penalaran lebih dalam`,
     ...(cfg.contextWindow ? [`model_context_window = ${Number(cfg.contextWindow)}`] : []),
   ];
   const provider = [
@@ -138,7 +139,7 @@ function codexToml(cfg, { inlineKey }) {
   return { top, provider };
 }
 
-const OWN_KEYS = /^\s*(model|model_provider|model_context_window)\s*=/;
+const OWN_KEYS = /^\s*(model|model_provider|model_context_window|model_reasoning_effort)\s*=/;
 const SAVED = "# sebelum-solvatra: ";
 
 /**

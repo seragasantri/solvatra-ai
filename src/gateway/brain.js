@@ -158,7 +158,8 @@ export class Brain {
         "Content-Type": "application/json", Authorization: `Bearer ${auth.apiKey}`, "User-Agent": USER_AGENT,
         ...(fallbacks.length ? { "x-solvatra-fallback-models": fallbacks.join(",") } : {}),
       },
-      body: JSON.stringify({ model: this.model(), messages, max_tokens: 2000 }),
+      // chat bot harus cepat: penalaran singkat
+      body: JSON.stringify({ model: this.model(), messages, max_tokens: 2000, reasoning_effort: "low" }),
       signal: AbortSignal.timeout(180e3),
     });
     const j = await res.json().catch(() => null);

@@ -72,6 +72,9 @@ export const config = {
   agentName: process.env.SOLVATRA_NAME || process.env.TRAGA_NAME || "Solvatra",
   persona,
   maxTokens: Number(process.env.TRAGA_MAX_TOKENS || 8000),
+  // "fast" (bawaan): model "berpikir" diminta menalar singkat → jawaban mulai jauh lebih cepat.
+  // "deep": penalaran penuh bawaan model (lebih lambat, untuk soal sulit). Ganti lewat /think.
+  reasoning: process.env.TRAGA_REASONING === "deep" ? "deep" : "fast",
   effort: process.env.TRAGA_EFFORT || "low",
   memoryTopK: Number(process.env.TRAGA_MEMORY_TOPK || 8),
   MODES,
