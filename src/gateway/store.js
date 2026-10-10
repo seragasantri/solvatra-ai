@@ -7,11 +7,17 @@ export const GATEWAY_DIR = path.join(TRAGA_HOME, "gateway");
 export const GATEWAY_FILE = path.join(GATEWAY_DIR, "config.json");
 export const WA_AUTH_DIR = path.join(GATEWAY_DIR, "whatsapp-auth");
 export const DEPS_DIR = path.join(GATEWAY_DIR, "deps");
+/** Penghitung jatah "coba gratis" per pengirim untuk mode channel publik. */
+export const TRIAL_FILE = path.join(GATEWAY_DIR, "trial.json");
 
 /**
  * Bentuk:
  * {
  *   model?, fallbackModels?: [], persona?: string, ownerMode: "ask"|"auto"|"manual",
+ *   // Mode channel publik (pemasaran): jadikan bot kanal akuisisi Solvatra.
+ *   // Pengunjung non-pemilik dapat persona Solvatra + jatah "coba gratis"
+ *   // per hari; sesudahnya bot mengajak mendaftar (tidak lagi menjawab).
+ *   publicChannel?: { enabled, freePerDay: number, registerUrl: string },
  *   telegram?: { enabled, token, botName, owners: [userId], scope: { mode: "all"|"private"|"owner"|"list", chats: [{id,name}] } },
  *   whatsapp?: { enabled, owners: ["628…"], scope: { mode: "all"|"private"|"owner"|"groups"|"numbers"|"custom", numbers: [], groups: [{id,name}] } }
  * }
@@ -25,6 +31,14 @@ export function saveGateway(g) {
   try { fs.chmodSync(GATEWAY_FILE, 0o600); } catch {}
 }
 export function updateGateway(fn) { const g = loadGateway(); const n = fn(g) || g; saveGateway(n); return n; }
+
+/** Peta jatah coba gratis: { "<senderKey>": { day: "YYYY-MM-DD", count } }. */
+export function loadTrial() {
+  try { return JSON.parse(fs.readFileSync(TRIAL_FILE, "utf8")); } catch { return {}; }
+}
+export function saveTrial(t) {
+  try { fs.mkdirSync(GATEWAY_DIR, { recursive: true }); fs.writeFileSync(TRIAL_FILE, JSON.stringify(t), { mode: 0o600 }); } catch {}
+}
 
 /** Nomor → format internasional tanpa + (08xx → 628xx). */
 export function normalizeNumber(s) {

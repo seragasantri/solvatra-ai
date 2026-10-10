@@ -31,6 +31,10 @@ function summary(C, g) {
   lines.push(C.dim("  Telegram   : ") + (g.telegram?.token ? `@${g.telegram.botName} · ${describeScope(g.telegram.scope)} · pemilik ${g.telegram.owners?.length || 0}` + (g.telegram.enabled === false ? C.yellow(" (nonaktif)") : "") : C.dim("belum diatur")));
   lines.push(C.dim("  WhatsApp   : ") + (fs.existsSync(WA_AUTH_DIR) && g.whatsapp ? `+${g.whatsapp.me || "?"} · ${describeScope(g.whatsapp.scope)}` + (g.whatsapp.enabled === false ? C.yellow(" (nonaktif)") : "") : C.dim("belum diatur")));
   lines.push(C.dim("  Akses      : ") + "kontak = chat saja · pemilik = agent penuh" + C.dim(` (konfirmasi: ${g.ownerMode || "ask"})`));
+  const pc = g.publicChannel;
+  lines.push(C.dim("  Channel    : ") + (pc?.enabled
+    ? C.cyan("publik/pemasaran") + C.dim(` · gratis ${pc.freePerDay ?? 10}/orang/hari · daftar: ${pc.registerUrl || "solvatra.web.id/register"}`)
+    : C.dim("pribadi")));
   return lines.join("\n");
 }
 
@@ -148,6 +152,42 @@ async function setupWhatsApp(rl, C) {
   return true;
 }
 
+// ── Channel publik (pemasaran) ──
+async function setupPublicChannel(rl, C) {
+  const g = loadGateway();
+  const pc = g.publicChannel || {};
+  const DEF_URL = "https://solvatra.web.id/register";
+  console.log(C.dim("\n  Mode channel publik menjadikan bot ini kanal pemasaran Solvatra:"));
+  console.log(C.dim("  pengunjung dapat persona resmi Solvatra + jatah \"coba gratis\" per hari,"));
+  console.log(C.dim("  lalu diajak mendaftar. Pemakaiannya memakai kuota akun Solvatra Anda."));
+  const choice = await select(rl, {
+    C, title: "",
+    options: [
+      { label: pc.enabled ? "Nonaktifkan mode publik" : "Aktifkan mode publik" },
+      { label: "Atur jatah gratis & link daftar" },
+    ],
+  });
+  if (choice < 0) return;
+  if (choice === 0) {
+    updateGateway((x) => {
+      x.publicChannel = {
+        enabled: !pc.enabled,
+        freePerDay: pc.freePerDay ?? 10,
+        registerUrl: pc.registerUrl || DEF_URL,
+      };
+    });
+    console.log(C.green(`  ✓ Channel publik ${!pc.enabled ? "aktif" : "nonaktif"}.`) + (!pc.enabled ? C.dim(" Tip: set cakupan bot ke \"semua\" agar siapa pun bisa mencoba.") : ""));
+    return;
+  }
+  const capRaw = await ask(rl, C.green("  Jatah coba gratis per orang/hari") + C.dim(` (Enter = ${pc.freePerDay ?? 10}; 0 = tanpa batas): `));
+  const urlRaw = await ask(rl, C.green("  Link pendaftaran") + C.dim(` (Enter = ${pc.registerUrl || DEF_URL}): `));
+  const cap = capRaw === "" ? (pc.freePerDay ?? 10) : Math.max(0, parseInt(capRaw, 10) || 0);
+  updateGateway((x) => {
+    x.publicChannel = { enabled: pc.enabled ?? true, freePerDay: cap, registerUrl: urlRaw || pc.registerUrl || DEF_URL };
+  });
+  console.log(C.green("  ✓ Channel publik tersimpan."));
+}
+
 async function setupModel(rl, C) {
   const g = loadGateway();
   const primary = await pickModel(rl, { C, current: g.model || config.providers.solvatra?.model, title: "Model untuk bot" });
@@ -221,6 +261,7 @@ export async function gatewayMenu(C, args = []) {
       { key: "wa", label: "Atur WhatsApp (scan QR)" },
       { key: "model", label: "Pilih model bot" },
       { key: "access", label: "Peran bot & persetujuan pemilik" },
+      { key: "public", label: g.publicChannel?.enabled ? "Channel publik (pemasaran) — aktif" : "Channel publik (pemasaran)", hint: "coba gratis → ajak daftar" },
       ...(g.telegram?.token ? [{ key: "tgoff", label: g.telegram.enabled === false ? "Aktifkan Telegram" : "Nonaktifkan Telegram" }] : []),
       ...(g.whatsapp ? [{ key: "waout", label: "Putuskan WhatsApp", hint: "keluar dari perangkat tertaut" }] : []),
       { key: "exit", label: "Keluar" },
@@ -232,6 +273,7 @@ export async function gatewayMenu(C, args = []) {
       else if (key === "wa") await setupWhatsApp(rl, C);
       else if (key === "model") await setupModel(rl, C);
       else if (key === "access") await setupAccess(rl, C);
+      else if (key === "public") await setupPublicChannel(rl, C);
       else if (key === "tgoff") updateGateway((x) => { x.telegram.enabled = x.telegram.enabled === false; });
       else if (key === "waout") {
         const ok = await select(rl, { C, title: "  Putuskan WhatsApp dari Solvatra?", options: ["Tidak", "Ya, putuskan"] });

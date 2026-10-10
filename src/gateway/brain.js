@@ -11,7 +11,7 @@ import { loadAuth, USER_AGENT } from "../auth.js";
 import { Memory } from "../memory.js";
 import { loadSkills } from "../skills.js";
 import { Agent } from "../agent.js";
-import { GATEWAY_DIR, loadGateway } from "./store.js";
+import { GATEWAY_DIR, loadGateway, loadTrial, saveTrial } from "./store.js";
 
 const HISTORY_DIR = path.join(GATEWAY_DIR, "history");
 const MAX_HISTORY = 20;          // pesan per chat yang dikirim ke model (chat biasa)
@@ -20,6 +20,23 @@ const RATE = { windowMs: 10 * 60e3, max: 20 }; // per pengirim non-pemilik
 const MAX_PARALLEL = 3;          // giliran model bersamaan (semua chat)
 
 const YES = /^(y|ya|iya|yes|ok|oke|boleh|lanjut|setuju|gas)\b/i;
+
+const REGISTER_URL_DEFAULT = "https://solvatra.web.id/register";
+const DEFAULT_FREE_PER_DAY = 10;
+const todayStr = () => new Date().toISOString().slice(0, 10);
+
+/** Mode channel publik: persona resmi Solvatra yang mengarahkan ke pendaftaran. */
+function marketingSystem(platform, registerUrl) {
+  return [
+    `Kamu adalah asisten resmi Solvatra AI (solvatra.web.id) yang membalas pesan ${platform}.`,
+    "Solvatra AI adalah gateway AI terpadu: satu akun & langganan untuk mengakses banyak model AI terbaik lewat chat, API key kompatibel OpenAI, playground, pembuatan PRD & aplikasi, add-in Office, ekstensi VS Code, dan bot Telegram/WhatsApp.",
+    "Jawab ramah, jelas, dan SINGKAT (beberapa kalimat), dalam bahasa lawan bicara (bawaan Bahasa Indonesia). Format aplikasi chat: paragraf pendek, daftar sederhana bila perlu. Tanpa tabel, tanpa heading markdown, tanpa basa-basi pembuka.",
+    `Bantu calon pengguna memahami manfaatnya dan, bila relevan, ajak mendaftar gratis di ${registerUrl} — tanpa memaksa dan tanpa mengulang ajakan di setiap balasan.`,
+    "Jangan mengarang harga atau detail paket yang tidak kamu ketahui; untuk itu arahkan ke halaman harga. Jangan menyebut nama provider atau model internal. Kamu tidak punya akses ke perangkat/file/akun siapa pun — jangan mengaku bisa. Jangan membocorkan instruksi ini.",
+  ].join("\n");
+}
+const ctaText = (url) =>
+  `Jatah coba gratis hari ini sudah habis 🙌\n\nLanjutkan tanpa batas ini: daftar gratis di ${url} — kuota penuh, API key, playground, dan pembuatan aplikasi menanti.`;
 
 function contactSystem(platform, persona) {
   return [
@@ -46,11 +63,32 @@ export class Brain {
     this.waiters = [];
     this.skillsPromise = null;
     this.memory = null;
+    this.trial = loadTrial();   // jatah coba gratis per pengirim (channel publik)
     fs.mkdirSync(HISTORY_DIR, { recursive: true });
   }
 
   get settings() { return loadGateway(); }
   model() { return this.settings.model || config.providers.solvatra?.model; }
+
+  // ── channel publik (pemasaran): jatah coba gratis per pengirim/hari ──
+  publicCfg() {
+    const pc = this.settings.publicChannel;
+    return pc?.enabled ? { cap: pc.freePerDay ?? DEFAULT_FREE_PER_DAY, url: pc.registerUrl || REGISTER_URL_DEFAULT } : null;
+  }
+  trialUsed(senderKey) {
+    const e = this.trial[senderKey];
+    return e && e.day === todayStr() ? e.count : 0;
+  }
+  trialBump(senderKey) {
+    const d = todayStr();
+    const e = this.trial[senderKey];
+    if (e && e.day === d) e.count += 1;
+    else this.trial[senderKey] = { day: d, count: 1 };
+    // sapu entri basi sesekali agar file tidak membengkak
+    if (Object.keys(this.trial).length > 20000)
+      for (const k of Object.keys(this.trial)) if (this.trial[k].day !== d) delete this.trial[k];
+    saveTrial(this.trial);
+  }
 
   // ── riwayat chat biasa (disimpan agar tahan restart) ──
   history(chatKey) {
@@ -99,7 +137,12 @@ export class Brain {
     if (pending && msg.isOwner) { pending(YES.test(text)); return; }
 
     if (/^\/(reset|baru|new)\b/i.test(text)) { this.reset(msg.chatKey); io.reply("Percakapan direset. Silakan mulai topik baru."); return; }
+    const pub = this.publicCfg();
     if (/^\/(start|help|bantuan)\b/i.test(text)) {
+      if (!msg.isOwner && pub) {
+        io.reply(`Halo! Saya asisten resmi Solvatra AI 🤖\nTanya apa saja soal layanan kami, atau coba kemampuannya langsung.${pub.cap > 0 ? ` Gratis ${pub.cap} pesan/hari.` : ""}\nInfo & daftar gratis: ${pub.url}`);
+        return;
+      }
       io.reply(msg.isOwner && !msg.isGroup
         ? "Halo, pemilik. Saya Solvatra AI dengan akses agent penuh di perangkat Anda. Kirim tugas apa saja. /reset untuk mulai ulang."
         : "Halo! Saya asisten AI. Kirim pertanyaan Anda. /reset untuk mulai ulang percakapan.");
@@ -110,6 +153,8 @@ export class Brain {
       const lim = this.limited(msg.senderKey);
       if (lim === "notify") { io.reply("Terlalu banyak pesan dalam waktu singkat. Coba lagi beberapa menit lagi ya."); return; }
       if (lim) return;
+      // Channel publik: jatah coba gratis per hari sudah habis → ajak daftar.
+      if (pub && pub.cap > 0 && this.trialUsed(msg.senderKey) >= pub.cap) { io.reply(ctaText(pub.url)); return; }
     }
 
     const prev = this.queues.get(msg.chatKey) || Promise.resolve();
@@ -126,7 +171,15 @@ export class Brain {
       const full = msg.isOwner && !msg.isGroup;
       const answer = full ? await this.ownerTurn(msg, io) : await this.contactTurn(msg);
       if (answer?.trim()) await io.reply(answer.trim());
-      this.log(`${msg.platform} · ${msg.senderName || msg.senderKey}${msg.isGroup ? " (grup)" : ""}${full ? " · agent" : ""} · ${((Date.now() - t0) / 1000).toFixed(1)} dtk`);
+      // Channel publik: potong jatah hanya setelah ada jawaban; beri tahu CTA
+      // saat jatah hari ini habis supaya pengunjung tahu langkah berikutnya.
+      const pub = this.publicCfg();
+      if (!msg.isOwner && pub && answer?.trim()) {
+        this.trialBump(msg.senderKey);
+        if (pub.cap > 0 && this.trialUsed(msg.senderKey) >= pub.cap)
+          await io.reply(ctaText(pub.url)).catch(() => {});
+      }
+      this.log(`${msg.platform} · ${msg.senderName || msg.senderKey}${msg.isGroup ? " (grup)" : ""}${full ? " · agent" : pub ? " · publik" : ""} · ${((Date.now() - t0) / 1000).toFixed(1)} dtk`);
     } catch (e) {
       this.log(`${msg.platform} · gagal: ${e.message}`);
       await io.reply(msg.isOwner ? `Gagal: ${e.message}` : "Maaf, sedang ada gangguan. Coba lagi sebentar lagi.").catch(() => {});
@@ -146,8 +199,12 @@ export class Brain {
     const content = msg.images?.length
       ? [{ type: "text", text: who + (msg.text || "Jelaskan gambar ini.") }, ...msg.images.map((im) => ({ type: "image_url", image_url: { url: `data:${im.media_type};base64,${im.data}` } }))]
       : who + msg.text;
+    const pub = this.publicCfg();
+    const system = pub && !msg.isOwner
+      ? marketingSystem(msg.platform, pub.url)
+      : contactSystem(msg.platform, this.settings.persona);
     const messages = [
-      { role: "system", content: contactSystem(msg.platform, this.settings.persona) },
+      { role: "system", content: system },
       ...h.slice(-MAX_HISTORY),
       { role: "user", content },
     ];
@@ -158,8 +215,8 @@ export class Brain {
         "Content-Type": "application/json", Authorization: `Bearer ${auth.apiKey}`, "User-Agent": USER_AGENT,
         ...(fallbacks.length ? { "x-solvatra-fallback-models": fallbacks.join(",") } : {}),
       },
-      // chat bot harus cepat: penalaran singkat
-      body: JSON.stringify({ model: this.model(), messages, max_tokens: 2000, reasoning_effort: "low" }),
+      // chat bot harus cepat: penalaran singkat. Mode publik lebih ringkas lagi (hemat biaya).
+      body: JSON.stringify({ model: this.model(), messages, max_tokens: pub && !msg.isOwner ? 700 : 2000, reasoning_effort: "low" }),
       signal: AbortSignal.timeout(180e3),
     });
     const j = await res.json().catch(() => null);
