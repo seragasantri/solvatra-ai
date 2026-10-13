@@ -36,8 +36,10 @@ solvatra-ai install
 
 - Claude Code / Codex dipasang dari npm resmi bila belum ada; yang diubah hanya alamat server
   (`solvatra.web.id`), kunci, dan model.
-- Model: 1 model utama (bawaan), boleh tambah hingga 2 **cadangan** — bila model utama gagal/sibuk
-  sebelum menjawab, gateway otomatis pindah ke cadangan (header `x-solvatra-fallback-models`).
+- Model: pilih **✨ Otomatis** (`auto`, paling atas & disarankan) supaya tidak perlu memilih — gateway
+  memakai model terbaik yang sedang lancar dan pindah sendiri ke model lain bila model itu gagal/sibuk
+  sebelum menjawab. Atau pilih 1 model tertentu, boleh tambah hingga 2 **cadangan** (header
+  `x-solvatra-fallback-models`).
 - Cara jalan: perintah `claude`/`codex` biasa (setelan lama dicadangkan dulu), atau perintah khusus
   `solvatra-claude`/`solvatra-codex` dengan config terpisah sehingga setelan Anda tidak tersentuh.
 - Kembalikan `claude`/`codex` ke setelan asli: `solvatra-ai reset claude` / `solvatra-ai reset codex`.
@@ -210,7 +212,7 @@ Pilih lewat env `TRAGA_PROVIDER`, lalu jalankan ulang.
 
 | Mode | Provider | Auth | Catatan |
 |---|---|---|---|
-| `solvatra` (default) | Solvatra AI Gateway | login akun (`solvatra-ai login`) | model dari `/v1/models` akun; ganti dengan `/model` |
+| `solvatra` (default) | Solvatra AI Gateway | login akun (`solvatra-ai login`) | bawaan **Otomatis** (`auto`: pindah model sendiri bila gangguan); pilih model tertentu dengan `/model` |
 | `claude` | Claude / Anthropic (resmi) | `ANTHROPIC_API_KEY` **atau** `ANTHROPIC_AUTH_TOKEN` (OAuth/SSO resmi) | jalur OAuth resmi via beta header `oauth-2025-04-20` |
 | `codex` | Codex / OpenAI (resmi) | `OPENAI_API_KEY` (API key / OAuth bearer resmi) | endpoint `api.openai.com`, format OpenAI |
 | `custom` | Router OpenAI-compatible mana pun | `TRAGA_CUSTOM_*` | OpenRouter / LiteLLM / ai-gateway — set `BASE_URL`+`MODEL`+`API_KEY` |

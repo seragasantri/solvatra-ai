@@ -273,6 +273,8 @@ const mask = (k) => (k ? `${k.slice(0, 8)}••••${k.slice(-4)}` : "");
 async function pickModels(rl, C, list, current = []) {
   const primary = await pickModel(rl, { C, current: current[0], title: "Model utama", models: list });
   if (!primary) return null;
+  // mode Otomatis sudah memilih & mengganti model sendiri — cadangan tidak perlu
+  if (primary === "auto") return [primary];
   const models = [primary];
   while (models.length < 3) {
     const more = await select(rl, {
@@ -285,7 +287,7 @@ async function pickModels(rl, C, list, current = []) {
       ],
     });
     if (more !== 1) break;
-    const rest = list.filter((m) => !models.includes(m.id));
+    const rest = list.filter((m) => !models.includes(m.id) && m.id !== "auto");
     if (!rest.length) break;
     const fb = await pickModel(rl, { C, current: current[models.length], title: `Model cadangan ${models.length}`, models: rest });
     if (!fb) break;

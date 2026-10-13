@@ -11,7 +11,7 @@ import { loadMcpTools } from "./mcp.js";
 import { runSetup, needsSetup, providerReady } from "./setup.js";
 import { login, logout, verify, clearAuth, listModels, listModelHealth, SERVER_URL } from "./auth.js";
 import { select, isSelecting } from "./select.js";
-import { pickModel, bestModel, describe as describeModel } from "./models.js";
+import { pickModel, bestModel, describe as describeModel, isAuto, modelLabel } from "./models.js";
 import { attachFile, clipboardFiles, pickFiles, splitPaths, droppedPaths } from "./attachments.js";
 import { APPS, setupApp, launchApp, removeDefault, appStatus } from "./apps.js";
 import { gatewayMenu } from "./gateway/index.js";
@@ -138,7 +138,7 @@ function banner(p, agent, skills, memory, mode, mcp) {
     C.bold(C.cyan(config.agentName.toUpperCase())) + C.dim("  \u2014  AI agent \u00b7 coding \u00b7 frontend \u00b7 security"),
     lbl("akun") + (account ? account.email : C.dim("-")),
     lbl("provider") + p.label,
-    lbl("model") + C.cyan(agent.provider.model),
+    lbl("model") + C.cyan(config.provider === "solvatra" ? modelLabel(agent.provider.model) : agent.provider.model),
     lbl("kapasitas") + skills.length + C.dim(" skill") + "   " + memory.all().length + C.dim(" memori") + (mcp ? "   " + mcp + C.dim(" mcp") : ""),
     lbl("mode") + modeDot(mode),
   ];
@@ -463,7 +463,7 @@ async function main() {
         const chosen = await pickModel(rl, { C, current: agent.provider.model, title: "Model tersedia untuk paket akun ini" });
         if (!chosen) return ask();
         setProviderField("solvatra", "model", chosen); agent.rebuildProvider(); p = activeProvider();
-        console.log(`\n  model → ${C.cyan(agent.provider.model)}\n`);
+        console.log(`\n  model → ${C.cyan(modelLabel(agent.provider.model))}\n`);
         return ask();
       }
       // Provider lain: daftar dari <baseUrl>/models.
@@ -679,15 +679,18 @@ async function main() {
       if (modelFailure) {
         const failed = agent.provider.model;
         const why = ex.message.replace(/^HTTP (\d+) dari \S+: ?/, "HTTP $1 — ").slice(0, 160);
-        console.error(C.yellow(`\n  ⚠  Model ${failed} sedang bermasalah (${why}).`));
+        console.error(C.yellow(isAuto(failed)
+          ? `\n  ⚠  Semua model yang dicoba mode Otomatis sedang bermasalah (${why}).`
+          : `\n  ⚠  Model ${failed} sedang bermasalah (${why}).`));
         const list = await listModelHealth();
+        // mode Otomatis (bila belum dipakai) ditawarkan pertama: tidak perlu memilih model lagi
         const alts = list.filter((m) => m.id !== failed && m.status !== "unavailable")
-          .sort((x, y) => Number(y.recommended) - Number(x.recommended) || (x.status === "stable" ? -1 : 0) - (y.status === "stable" ? -1 : 0))
+          .sort((x, y) => Number(isAuto(y.id)) - Number(isAuto(x.id)) || Number(y.recommended) - Number(x.recommended) || (x.status === "stable" ? -1 : 0) - (y.status === "stable" ? -1 : 0))
           .slice(0, 3);
         const options = [
-          ...alts.map((m) => ({ label: `Ganti ke ${m.id} lalu ulangi`, hint: describeModel(m, C) })),
+          ...alts.map((m) => ({ label: isAuto(m.id) ? "Pakai mode Otomatis lalu ulangi" : `Ganti ke ${m.id} lalu ulangi`, hint: describeModel(m, C) })),
           { label: "Pilih model lain…" },
-          { label: `Tetap pakai ${failed}`, hint: "(tidak diulang)" },
+          { label: `Tetap pakai ${modelLabel(failed)}`, hint: "(tidak diulang)" },
         ];
         const k = await select(rl, { C, title: C.bold("  Ganti model dan ulangi pertanyaan ini?"), options });
         let next = null;
@@ -695,7 +698,7 @@ async function main() {
         else if (k === alts.length) next = await pickModel(rl, { C, current: failed, models: list });
         if (next && next !== failed) {
           setProviderField("solvatra", "model", next); agent.rebuildProvider(); p = activeProvider();
-          console.log(`  model → ${C.cyan(next)}` + C.dim("  · mengulang pertanyaan…"));
+          console.log(`  model → ${C.cyan(modelLabel(next))}` + C.dim("  · mengulang pertanyaan…"));
           // giliran yang gagal dibuang dari riwayat supaya tidak terkirim dua kali
           const t = agent.turns;
           if (t.length && t[t.length - 1].role === "user") t.pop();

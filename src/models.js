@@ -1,5 +1,6 @@
 // Pemilih model Solvatra berlabel kesehatan: ⭐ rekomendasi, ✓ stabil, ⚠ kurang stabil,
 // ✗ gangguan, • belum teruji. Semua tetap bisa dipilih — pemakai yang memutuskan.
+// Entri teratas dari server adalah "auto" (mode Otomatis) — bawaan untuk pemakai baru.
 import { select } from "./select.js";
 import { listModelHealth } from "./auth.js";
 
@@ -10,8 +11,17 @@ export const STATUS = {
   unknown: { icon: "•", label: "belum teruji" },
 };
 
+/** "auto" = mode Otomatis: server memilih model yang lancar & pindah sendiri bila gangguan. */
+export const isAuto = (id) => id === "auto";
+export const modelLabel = (id) => (isAuto(id) ? "Otomatis (auto)" : id);
+
 export function describe(m, C = {}) {
   const dim = C.dim || ((s) => s), green = C.green || ((s) => s), yellow = C.yellow || ((s) => s), red = C.red || ((s) => s);
+  if (isAuto(m.id)) {
+    return m.status === "unavailable"
+      ? red("✗ semua model sedang gangguan")
+      : green("⭐ disarankan") + dim(" · tidak perlu memilih — pindah sendiri ke model lain bila gangguan");
+  }
   const st = STATUS[m.status] || STATUS.unknown;
   const color = m.status === "stable" ? green : m.status === "unstable" ? yellow : m.status === "unavailable" ? red : dim;
   const parts = [color(`${st.icon} ${st.label}`)];
@@ -31,7 +41,7 @@ export async function pickModel(rl, { C = {}, current = null, title = "Pilih mod
   const idx = await select(rl, {
     C,
     title: "\n  " + (C.bold ? C.bold(title) : title) + (C.dim ? C.dim("  (⭐ disarankan: stabil & terbukti bisa memanggil tool)") : ""),
-    options: list.map((m) => ({ label: m.id + (m.id === current ? "  ● aktif" : ""), hint: describe(m, C) })),
+    options: list.map((m) => ({ label: (isAuto(m.id) ? "✨ Otomatis" : m.id) + (m.id === current ? "  ● aktif" : ""), hint: describe(m, C) })),
     initial: Math.max(0, list.findIndex((m) => m.id === current)),
     hint: "↑/↓ pilih · Enter pakai model ini · Esc batal",
   });
